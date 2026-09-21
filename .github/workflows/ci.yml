@@ -530,6 +530,11 @@ jobs:
         E2E_BASE_URL: https://localhost:44399
       run: npm test
 
+    - name: Write Test Summary
+      if: always()
+      working-directory: tests/e2e
+      run: node scripts/write-summary.mjs
+
     - name: Stop Test Site
       if: always()
       shell: bash
