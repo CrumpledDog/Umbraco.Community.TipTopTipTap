@@ -90,7 +90,7 @@ jobs:
           fi
 
   build:
-    name: Build, Run, CodeGen and Package
+    name: Build, Run and Package
     runs-on: ubuntu-latest
     needs: setup
     timeout-minutes: 10
@@ -108,15 +108,7 @@ jobs:
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    # This package was generated without a Client/ (backoffice UI) - all these steps self-skip via
-    # this hashFiles guard rather than the workflow needing two variants.
-    - name: Check for Client
-      id: has-client
-      shell: bash
-      run: echo "present=${{ hashFiles(format('{0}/package.json', env.PATH_TO_CLIENT)) != '' }}" >> $GITHUB_OUTPUT
-
     - name: Setup Node.js environment
-      if: steps.has-client.outputs.present == 'true'
       uses: actions/setup-node@v6
       with:
         node-version: 'lts/*'
@@ -124,9 +116,16 @@ jobs:
         cache-dependency-path: '${{ env.PATH_TO_CLIENT }}/package-lock.json'
 
     - name: Install Client dependencies
-      if: steps.has-client.outputs.present == 'true'
       working-directory: ${{ env.PATH_TO_CLIENT }}
       run: npm ci
+
+    # This package ships zero backend C# logic - the Client bundle is the whole product, and it
+    # must be built (into src/Umbraco.Community.TipTopTipTap/wwwroot/App_Plugins/**) *before* the
+    # DemoSite is built below, since the DemoSite picks up the package's static web assets at its
+    # own build time via the ProjectReference - not at publish/run time.
+    - name: Build Client
+      working-directory: ${{ env.PATH_TO_CLIENT }}
+      run: npm run build
 
     - name: Update Version Files
       id: update-version
@@ -173,21 +172,17 @@ jobs:
     - name: Health Check
       shell: bash
       run: |
-        # Polls the package's own swagger.json rather than the site root - the root route depends
-        # on Umbraco having routable content, which races with a fresh unattended install and can
-        # throw ("No UmbracoRouteValues feature was found") if hit before content is ready.
+        # This package has no Management API, so there's no swagger.json to poll. Instead this polls
+        # the package's own compiled Client bundle under App_Plugins as a static web asset - this
+        # confirms both that the DemoSite booted *and* that the static web assets actually got built
+        # and copied into place, which is arguably a better signal for a Client-only package anyway.
         for i in {1..30}; do
-          if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:44399/umbraco/swagger/umbracocommunitytiptoptiptap/swagger.json | grep -q "200"; then
+          if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:44399/App_Plugins/UmbracoCommunityTipTopTipTap/umbraco-community-tip-top-tip-tap.js | grep -q "200"; then
             exit 0
           fi
           sleep 2
         done
         exit 1
-
-    - name: CodeGen
-      if: steps.has-client.outputs.present == 'true'
-      working-directory: ${{ env.PATH_TO_CLIENT }}
-      run: npm run generate-client
 
     - name: Stop Project
       if: always()
@@ -201,11 +196,6 @@ jobs:
     - name: Check for Startup Errors
       shell: pwsh
       run: '.github/scripts/Check-StartupErrors.ps1 -LogPath "${{ env.PATH_TO_TESTSITE }}/umbraco/Logs"'
-
-    - name: Build Client
-      if: steps.has-client.outputs.present == 'true'
-      working-directory: ${{ env.PATH_TO_CLIENT }}
-      run: npm run build
 
     - name: Build slnx
       run: dotnet build ${{ github.workspace }}/*.slnx -c Release
@@ -314,7 +304,7 @@ jobs:
         sleep 5
 
         for i in {1..30}; do
-          if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:44399/umbraco/swagger/umbracocommunitytiptoptiptap/swagger.json | grep -q "200"; then
+          if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:44399/App_Plugins/UmbracoCommunityTipTopTipTap/umbraco-community-tip-top-tip-tap.js | grep -q "200"; then
             exit 0
           fi
           sleep 2

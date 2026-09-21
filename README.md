@@ -1,6 +1,10 @@
 # Umbraco.Community.TipTopTipTap
 
-TODO: one paragraph describing what this package does and why it exists.
+A Rich Text Editor (TipTap) extension for Umbraco that cleans up the debris Word/Office paste leaves
+behind: empty `class=""`/`style=""` attributes and meaningless empty `span` marks. It's layered on top of
+the [`@intevation/tiptap-extension-office-paste`](https://www.npmjs.com/package/@intevation/tiptap-extension-office-paste)
+npm package's own `mso-*` style and list cleanup, so pasted Word/Office content ends up genuinely clean
+instead of littered with dead attributes and pointless wrapper spans.
 
 <img src="icons/icon.png" width="120" height="120" alt="">
 
@@ -10,27 +14,33 @@ TODO: one paragraph describing what this package does and why it exists.
 dotnet add package Umbraco.Community.TipTopTipTap
 ```
 
-TODO: describe configuration, e.g.:
-
-```json
-{
-  "Crumpled": {
-    "UmbracoCommunityTipTopTipTap": {
-      "Enabled": true
-    }
-  }
-}
-```
-
-(the nested config section name above will read `UmbracoCommunityTipTopTipTap` after generation - most existing Crumpled packages drop the repeated `Crumpled` prefix here, e.g. `Crumpled:VerifyOwnership` - rename it to match that convention when you fill in this TODO)
+No configuration is required - just install the package and enable the extension per Rich Text Editor
+data type (see "How it works" below).
 
 ## How it works
 
-TODO.
+The package registers a single TipTap extension, **Office Paste Cleanup**, with Umbraco's Rich Text Editor.
+It does two things:
 
-## Backoffice UI
+1. **On paste** (`transformPastedHTML`): before Umbraco's editor parses the pasted HTML, it strips any
+   `class=""` or `style=""` attribute that Word/Office left behind empty (a very common artifact of
+   copy-pasting from Word or Outlook).
+2. **After the paste lands in the document** (`appendTransaction`): it walks the resulting document and
+   removes any `span` mark that has no meaningful attributes left, so editors aren't left with invisible,
+   purposeless `<span>` wrappers cluttering the saved markup.
 
-TODO - or delete this section if generated with `--include-client:false`.
+Both steps run immediately after `@intevation/tiptap-extension-office-paste`'s own cleanup, so the two
+extensions work together rather than duplicating effort.
+
+## Enabling it on a data type
+
+This uses Umbraco's own standard mechanism for TipTap extensions - no custom configuration screen is
+needed:
+
+1. Go to **Settings → Data Types** and open (or create) a **Rich Text Editor** data type.
+2. In the **Available extensions** list, tick **Office Paste Cleanup**.
+3. Save the data type. Any content using it will now have the cleanup applied automatically whenever
+   content is pasted into that RTE.
 
 ## Requirements
 

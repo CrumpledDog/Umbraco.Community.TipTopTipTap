@@ -5,7 +5,7 @@
   "allowTelemetry": true,
   "extensions": [
     {
-      "name": "Crumpled Package Template Bundle",
+      "name": "TipTopTipTap Bundle",
       "alias": "Umbraco.Community.TipTopTipTap.Bundle",
       "type": "bundle",
       "js": "/App_Plugins/UmbracoCommunityTipTopTipTap/umbraco-community-tip-top-tip-tap.js"
