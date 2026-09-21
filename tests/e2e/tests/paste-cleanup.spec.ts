@@ -109,6 +109,42 @@ async function pasteWordHtml(page: Page): Promise<void> {
   await expect(editable.locator("span")).toHaveCount(0, { timeout: 10_000 });
 }
 
+// TEMPORARY diagnostic test - isolates whether our OWN cleanup-empty-attrs.extension.ts logic
+// (which has no mso/office gating condition at all - it fires whenever the pasted html literally
+// contains `class=""`, `style=""`, or `<span`) ever runs in CI independently of office-paste's
+// own processing. The main test above has failed identically in CI 4 times regardless of paste
+// delivery mechanism (synthetic ClipboardEvent vs real OS clipboard + Ctrl+V) and regardless of
+// whether the payload triggers office-paste's own mso detection - always "2 spans, stuck". This
+// pastes a minimal fragment with no mso/office markers at all, to see if the simplest possible
+// case (no interaction with office-paste's own transformPastedHTML chain) works in CI.
+test("diagnostic: minimal non-Office span cleanup in isolation", async ({ page }) => {
+  await openPasteTestPage(page);
+  const editable = page.locator('[contenteditable="true"]');
+  await editable.click();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.press("Delete");
+
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  const minimalHtml = `<span class="">bare span text</span>`;
+  await page.evaluate(
+    async ({ html, text }) => {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([text], { type: "text/plain" }),
+        }),
+      ]);
+    },
+    { html: minimalHtml, text: "bare span text" },
+  );
+  await editable.click();
+  await page.keyboard.press("ControlOrMeta+V");
+  await page.waitForTimeout(1000);
+
+  const innerHTML = await editable.evaluate((el) => el.innerHTML);
+  console.log("DIAGNOSTIC minimal paste result:", innerHTML);
+});
+
 test("Office Paste Cleanup strips Word paste debris while preserving real content", async ({ page }) => {
   await openPasteTestPage(page);
   await pasteWordHtml(page);
