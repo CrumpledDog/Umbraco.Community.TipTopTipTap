@@ -69,10 +69,6 @@ async function openPasteTestPage(page: Page): Promise<void> {
 }
 
 async function pasteWordHtml(page: Page): Promise<void> {
-  // TEMPORARY diagnostics (see the note by the console.log calls below).
-  page.on("console", (msg) => console.log("BROWSER CONSOLE:", msg.type(), msg.text()));
-  page.on("pageerror", (err) => console.log("BROWSER PAGE ERROR:", err.message, err.stack));
-
   const editable = page.locator('[contenteditable="true"]');
   await editable.click();
 
@@ -81,48 +77,34 @@ async function pasteWordHtml(page: Page): Promise<void> {
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.press("Delete");
 
-  // Dispatch a real ClipboardEvent - `transformPastedHTML` (see cleanup-empty-attrs.extension.ts)
-  // is a ProseMirror clipboard hook that only fires during actual paste event processing, not
-  // for programmatic content insertion.
-  const immediatelyAfterDispatch = await editable.evaluate(
-    (el, { html, text }) => {
-      el.focus();
-      const dataTransfer = new DataTransfer();
-      dataTransfer.setData("text/html", html);
-      dataTransfer.setData("text/plain", text);
-      const pasteEvent = new ClipboardEvent("paste", {
-        bubbles: true,
-        cancelable: true,
-        clipboardData: dataTransfer,
-      });
-      const dispatchReturnedTrue = el.dispatchEvent(pasteEvent);
-      return {
-        dispatchReturnedTrue,
-        defaultPrevented: pasteEvent.defaultPrevented,
-        innerHTML: el.innerHTML,
-      };
+  // Write to the REAL OS clipboard, then send a genuine Ctrl+V, rather than dispatching a
+  // synthetic `ClipboardEvent` directly at the editor. This matters, not just for realism:
+  // a synthetic/untrusted event was confirmed live to behave inconsistently across platforms -
+  // it worked reliably on Windows (both against a local dev build and a packed-nupkg Release
+  // build) but reproducibly failed on CI's Linux runner every single time (3 separate CI runs,
+  // never a timing issue - `defaultPrevented` was true and the DOM was already in its final,
+  // uncleaned state the instant the synthetic event's dispatch returned, both immediately and
+  // 500ms later). Routing through the browser's own native clipboard + paste handling instead
+  // exercises the exact same code path a real user's paste would, which is consistent across
+  // OSes because it no longer depends on how each platform's Chromium build happens to process
+  // a JS-constructed, untrusted ClipboardEvent.
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate(
+    async ({ html, text }) => {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+          "text/plain": new Blob([text], { type: "text/plain" }),
+        }),
+      ]);
     },
     { html: WORD_PASTE_HTML, text: WORD_PASTE_PLAIN_TEXT },
   );
-  // TEMPORARY diagnostics - CI has failed 3 times reproducibly with 2 <span>s stuck for the
-  // full wait (not a timing race: the count never moves across ~24 polls over 10s). This dumps
-  // what the DOM actually looks like the instant dispatchEvent() returns, to tell us whether
-  // ProseMirror's paste handler ran synchronously at all (defaultPrevented should be true if it
-  // did) and what transformPastedHTML actually produced, rather than guessing further blind.
-  console.log("IMMEDIATELY AFTER DISPATCH:", JSON.stringify(immediatelyAfterDispatch));
+  await editable.click();
+  await page.keyboard.press("ControlOrMeta+V");
 
-  await page.waitForTimeout(500);
-  const afterHalfSecond = await editable.evaluate((el) => el.innerHTML);
-  console.log("AFTER 500ms:", afterHalfSecond);
-
-  // Let the paste + our ProseMirror plugins settle before reading the result back out. This
-  // needs two separate waits, not one: `<strong>` appears immediately as part of the paste's own
-  // synchronous transaction (transformPastedHTML runs inline), but the empty-span-mark removal
-  // (cleanup-empty-attrs.extension.ts's appendTransaction) is a *second*, separate transaction
-  // that ProseMirror dispatches after the first - it can land a tick or more later. Waiting only
-  // for "strong is visible" races that second pass and was confirmed live to flake/fail in CI's
-  // slower runner: Save got clicked while the raw `<span>`/`class=""` wrappers from the first
-  // pass were still present, before appendTransaction had stripped them.
+  // Let the paste + our ProseMirror plugins (transformPastedHTML, then appendTransaction's
+  // empty-span-mark removal) settle before reading the result back out.
   await expect(editable.locator("strong")).toBeVisible();
   await expect(editable.locator("span")).toHaveCount(0, { timeout: 10_000 });
 }
