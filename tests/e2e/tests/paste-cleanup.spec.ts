@@ -68,9 +68,16 @@ async function pasteWordHtml(page: Page): Promise<void> {
     { html: WORD_PASTE_HTML, text: WORD_PASTE_PLAIN_TEXT },
   );
 
-  // Let the paste + our ProseMirror plugins (transformPastedHTML, then appendTransaction's
-  // empty-span-mark removal) settle before reading the result back out.
+  // Let the paste + our ProseMirror plugins settle before reading the result back out. This
+  // needs two separate waits, not one: `<strong>` appears immediately as part of the paste's own
+  // synchronous transaction (transformPastedHTML runs inline), but the empty-span-mark removal
+  // (cleanup-empty-attrs.extension.ts's appendTransaction) is a *second*, separate transaction
+  // that ProseMirror dispatches after the first - it can land a tick or more later. Waiting only
+  // for "strong is visible" races that second pass and was confirmed live to flake/fail in CI's
+  // slower runner: Save got clicked while the raw `<span>`/`class=""` wrappers from the first
+  // pass were still present, before appendTransaction had stripped them.
   await expect(editable.locator("strong")).toBeVisible();
+  await expect(editable.locator("span")).toHaveCount(0, { timeout: 10_000 });
 }
 
 test("Office Paste Cleanup strips Word paste debris while preserving real content", async ({ page }) => {
