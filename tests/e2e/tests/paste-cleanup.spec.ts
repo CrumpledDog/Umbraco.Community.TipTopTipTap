@@ -80,7 +80,7 @@ async function pasteWordHtml(page: Page): Promise<void> {
   // Dispatch a real ClipboardEvent - `transformPastedHTML` (see cleanup-empty-attrs.extension.ts)
   // is a ProseMirror clipboard hook that only fires during actual paste event processing, not
   // for programmatic content insertion.
-  await editable.evaluate(
+  const immediatelyAfterDispatch = await editable.evaluate(
     (el, { html, text }) => {
       el.focus();
       const dataTransfer = new DataTransfer();
@@ -91,10 +91,25 @@ async function pasteWordHtml(page: Page): Promise<void> {
         cancelable: true,
         clipboardData: dataTransfer,
       });
-      el.dispatchEvent(pasteEvent);
+      const dispatchReturnedTrue = el.dispatchEvent(pasteEvent);
+      return {
+        dispatchReturnedTrue,
+        defaultPrevented: pasteEvent.defaultPrevented,
+        innerHTML: el.innerHTML,
+      };
     },
     { html: WORD_PASTE_HTML, text: WORD_PASTE_PLAIN_TEXT },
   );
+  // TEMPORARY diagnostics - CI has failed 3 times reproducibly with 2 <span>s stuck for the
+  // full wait (not a timing race: the count never moves across ~24 polls over 10s). This dumps
+  // what the DOM actually looks like the instant dispatchEvent() returns, to tell us whether
+  // ProseMirror's paste handler ran synchronously at all (defaultPrevented should be true if it
+  // did) and what transformPastedHTML actually produced, rather than guessing further blind.
+  console.log("IMMEDIATELY AFTER DISPATCH:", JSON.stringify(immediatelyAfterDispatch));
+
+  await page.waitForTimeout(500);
+  const afterHalfSecond = await editable.evaluate((el) => el.innerHTML);
+  console.log("AFTER 500ms:", afterHalfSecond);
 
   // Let the paste + our ProseMirror plugins settle before reading the result back out. This
   // needs two separate waits, not one: `<strong>` appears immediately as part of the paste's own
