@@ -69,6 +69,10 @@ async function openPasteTestPage(page: Page): Promise<void> {
 }
 
 async function pasteWordHtml(page: Page): Promise<void> {
+  // TEMPORARY diagnostics (see the note by the console.log calls below).
+  page.on("console", (msg) => console.log("BROWSER CONSOLE:", msg.type(), msg.text()));
+  page.on("pageerror", (err) => console.log("BROWSER PAGE ERROR:", err.message, err.stack));
+
   const editable = page.locator('[contenteditable="true"]');
   await editable.click();
 
