@@ -46,6 +46,14 @@ needed:
 
 - Umbraco CMS 17 or 18
 
+## Testing
+
+A Playwright end-to-end suite lives at [`tests/e2e/`](tests/e2e/) and exercises the actual paste-cleanup
+behaviour against a real backoffice (login, paste crafted Word-style HTML into a seeded Rich Text Editor
+property, save, and assert on the resulting markup via a real DOM parse). See
+[`tests/e2e/README.md`](tests/e2e/README.md) for how to run it locally and how to regenerate its seed
+database fixture.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the branching strategy and formatting requirements.
