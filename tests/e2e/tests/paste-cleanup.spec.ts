@@ -137,9 +137,40 @@ test("diagnostic: minimal non-Office span cleanup in isolation", async ({ page }
     },
     { html: minimalHtml, text: "bare span text" },
   );
+
+  // Intercept the paste event in the CAPTURE phase (guaranteed to run before ProseMirror's own
+  // bubble-phase listener on the same element, regardless of attachment order) to see the exact
+  // raw clipboardData ProseMirror itself would receive, and to independently replicate
+  // cleanup-empty-attrs.extension.ts's own check/DOMParser logic outside the extension entirely -
+  // this tells us whether the raw data or the DOM APIs themselves differ in CI, vs. the extension
+  // simply not running. Stashed on `window` (not returned via a Promise) so this setup call
+  // doesn't block waiting for a paste event that hasn't happened yet.
+  await editable.evaluate((el) => {
+    (window as unknown as { __diag?: unknown }).__diag = undefined;
+    el.addEventListener(
+      "paste",
+      (event) => {
+        const html = (event as ClipboardEvent).clipboardData?.getData("text/html") ?? "(none)";
+        const includesEmptyClass = html.includes('class=""');
+        let queryMatchCount = -1;
+        try {
+          const doc = new DOMParser().parseFromString(html, "text/html");
+          queryMatchCount = doc.querySelectorAll('[class=""]').length;
+        } catch {
+          queryMatchCount = -2;
+        }
+        (window as unknown as { __diag?: unknown }).__diag = { html, includesEmptyClass, queryMatchCount };
+      },
+      { capture: true, once: true },
+    );
+  });
+
   await editable.click();
   await page.keyboard.press("ControlOrMeta+V");
   await page.waitForTimeout(1000);
+
+  const captured = await page.evaluate(() => (window as unknown as { __diag?: unknown }).__diag);
+  console.log("DIAGNOSTIC captured raw clipboardData:", JSON.stringify(captured));
 
   const innerHTML = await editable.evaluate((el) => el.innerHTML);
   console.log("DIAGNOSTIC minimal paste result:", innerHTML);
