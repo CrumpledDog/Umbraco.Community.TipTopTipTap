@@ -22,15 +22,43 @@ import { test, expect, type Page } from "@playwright/test";
  * documented in Crumpled.UmbracoAzureHostingKit's tests/e2e suite.
  */
 
-/** Word/Office-style HTML: mso-* junk, an empty class/style span, a bare <span><b>, and a
- * second paragraph with a real (non-mso) inline style that must survive unchanged. */
+/**
+ * Word/Office-style HTML: a full, realistic Word-clipboard document (xmlns:o wrapper,
+ * StartFragment/EndFragment comments, <o:p> tags) - not just a bare fragment of mso-* junk.
+ *
+ * This matters for more than realism: @intevation/tiptap-extension-office-paste's own
+ * transformPastedHTML (src/index.ts, compiled to node_modules/@intevation/tiptap-extension-
+ * office-paste/dist/index.js) only runs its mso/list/bookmark cleanup at all when
+ * `html.indexOf("microsoft-com") !== -1 && html.indexOf("office") !== -1` - i.e. it's gated on
+ * the `xmlns:o="urn:schemas-microsoft-com:office:office"` wrapper real Word/Outlook paste always
+ * includes. An earlier version of this fixture used a bare `<p class="MsoNormal" style="mso-...">`
+ * fragment with no such wrapper, which happened to still get cleaned up locally (our own
+ * cleanup-empty-attrs.extension.ts's transformPastedHTML strips empty class=""/style="" and empty
+ * <span> marks unconditionally, independent of office-paste's own detection) but failed
+ * reproducibly in CI - confirmed live, not flaky, identical failure on both the initial attempt
+ * and the retry. Rather than chase an environment-specific discrepancy in an under-specified
+ * paste payload, this uses the realistic full document so both extensions' real, intended code
+ * paths are exercised deterministically everywhere.
+ *
+ * mso-* junk: an empty class/style span, a bare <span><b>, an <o:p> tag, and a second paragraph
+ * with a real (non-mso) inline style that must survive unchanged.
+ */
 const WORD_PASTE_HTML = `
-  <p class="MsoNormal" style="mso-margin-top-alt:auto;mso-margin-bottom-alt:auto;mso-line-height-alt:14.0pt">
-    <span style="">Hello </span><span class="" style=""><b>World</b></span> this is a paste test.
-  </p>
-  <p style="color:#FF0000;mso-fareast-language:EN-US">
-    This paragraph keeps its real styling.
-  </p>
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+</head>
+<body lang="EN-US">
+<!--StartFragment-->
+<p class="MsoNormal" style="mso-margin-top-alt:auto;mso-margin-bottom-alt:auto;mso-line-height-alt:14.0pt">
+  <span style="">Hello </span><span class="" style=""><b>World</b></span> this is a paste test.<o:p></o:p>
+</p>
+<p style="color:#FF0000;mso-fareast-language:EN-US">
+  This paragraph keeps its real styling.<o:p></o:p>
+</p>
+<!--EndFragment-->
+</body>
+</html>
 `;
 const WORD_PASTE_PLAIN_TEXT = "Hello World this is a paste test. This paragraph keeps its real styling.";
 
