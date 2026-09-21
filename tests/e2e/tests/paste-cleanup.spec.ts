@@ -20,6 +20,22 @@ import { test, expect, type Page } from "@playwright/test";
  * Playwright's own locators auto-pierce open shadow roots (Lit's default, which the whole
  * backoffice is built from), so no custom shadow-DOM query helper is needed here - same as
  * documented in Crumpled.UmbracoAzureHostingKit's tests/e2e suite.
+ *
+ * CI-only failure investigation (5 CI runs, resolved): the RTE's toolbar/contenteditable area
+ * renders and becomes interactive before all of the data type's ~30 tiptap extensions (each its
+ * own dynamically-imported JS chunk - `api: () => import(...)` in every extension's manifest,
+ * including ours) have finished loading and registering their ProseMirror plugins. Locally this
+ * gap is imperceptible; on CI's colder/slower runner it was wide enough that a paste fired before
+ * "Office Paste Cleanup" was actually registered on the editor. Proven with temporary diagnostics
+ * across several commits: a capture-phase `paste` listener confirmed the raw clipboardData
+ * reaching the page, and an independent replica of the extension's own
+ * `html.includes('class=""')` + `DOMParser`/`querySelectorAll` check, were both byte-identical
+ * and correct in CI - the extension's OWN logic simply never ran, even though every dependency it
+ * relies on (clipboard data, DOM APIs) worked. Delivery mechanism (synthetic `ClipboardEvent` vs
+ * real OS clipboard + Ctrl+V) and build (packed nupkg vs dev build, Release vs Debug) were both
+ * ruled out first via local A/B testing and further CI runs. Waiting for the network to settle
+ * after opening the content node (below) gives every extension's chunk time to load before the
+ * paste is attempted.
  */
 
 /**
@@ -31,14 +47,8 @@ import { test, expect, type Page } from "@playwright/test";
  * office-paste/dist/index.js) only runs its mso/list/bookmark cleanup at all when
  * `html.indexOf("microsoft-com") !== -1 && html.indexOf("office") !== -1` - i.e. it's gated on
  * the `xmlns:o="urn:schemas-microsoft-com:office:office"` wrapper real Word/Outlook paste always
- * includes. An earlier version of this fixture used a bare `<p class="MsoNormal" style="mso-...">`
- * fragment with no such wrapper, which happened to still get cleaned up locally (our own
- * cleanup-empty-attrs.extension.ts's transformPastedHTML strips empty class=""/style="" and empty
- * <span> marks unconditionally, independent of office-paste's own detection) but failed
- * reproducibly in CI - confirmed live, not flaky, identical failure on both the initial attempt
- * and the retry. Rather than chase an environment-specific discrepancy in an under-specified
- * paste payload, this uses the realistic full document so both extensions' real, intended code
- * paths are exercised deterministically everywhere.
+ * includes. Using the realistic full document exercises both extensions' real, intended code
+ * paths rather than an under-specified fragment.
  *
  * mso-* junk: an empty class/style span, a bare <span><b>, an <o:p> tag, and a second paragraph
  * with a real (non-mso) inline style that must survive unchanged.
@@ -66,6 +76,14 @@ async function openPasteTestPage(page: Page): Promise<void> {
   await page.goto("/umbraco/section/content");
   await page.getByRole("link", { name: "Paste Test", exact: true }).first().click();
   await expect(page.locator('[contenteditable="true"]')).toBeVisible();
+
+  // See the file-level comment above: the editor is interactive before all of the data type's
+  // tiptap extensions (each a separate dynamically-imported chunk, including ours) have finished
+  // registering. Wait for the network to go quiet - covers a cold CI runner still fetching/
+  // evaluating those chunks - with a floor in case the persistent server-events WebSocket
+  // connection (see `serverEventHub` in the console log) keeps "networkidle" from ever firing.
+  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
+  await page.waitForTimeout(1_000);
 }
 
 async function pasteWordHtml(page: Page): Promise<void> {
@@ -78,16 +96,8 @@ async function pasteWordHtml(page: Page): Promise<void> {
   await page.keyboard.press("Delete");
 
   // Write to the REAL OS clipboard, then send a genuine Ctrl+V, rather than dispatching a
-  // synthetic `ClipboardEvent` directly at the editor. This matters, not just for realism:
-  // a synthetic/untrusted event was confirmed live to behave inconsistently across platforms -
-  // it worked reliably on Windows (both against a local dev build and a packed-nupkg Release
-  // build) but reproducibly failed on CI's Linux runner every single time (3 separate CI runs,
-  // never a timing issue - `defaultPrevented` was true and the DOM was already in its final,
-  // uncleaned state the instant the synthetic event's dispatch returned, both immediately and
-  // 500ms later). Routing through the browser's own native clipboard + paste handling instead
-  // exercises the exact same code path a real user's paste would, which is consistent across
-  // OSes because it no longer depends on how each platform's Chromium build happens to process
-  // a JS-constructed, untrusted ClipboardEvent.
+  // synthetic `ClipboardEvent` directly at the editor - this exercises the exact same code path
+  // a real user's paste would.
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.evaluate(
     async ({ html, text }) => {
@@ -108,73 +118,6 @@ async function pasteWordHtml(page: Page): Promise<void> {
   await expect(editable.locator("strong")).toBeVisible();
   await expect(editable.locator("span")).toHaveCount(0, { timeout: 10_000 });
 }
-
-// TEMPORARY diagnostic test - isolates whether our OWN cleanup-empty-attrs.extension.ts logic
-// (which has no mso/office gating condition at all - it fires whenever the pasted html literally
-// contains `class=""`, `style=""`, or `<span`) ever runs in CI independently of office-paste's
-// own processing. The main test above has failed identically in CI 4 times regardless of paste
-// delivery mechanism (synthetic ClipboardEvent vs real OS clipboard + Ctrl+V) and regardless of
-// whether the payload triggers office-paste's own mso detection - always "2 spans, stuck". This
-// pastes a minimal fragment with no mso/office markers at all, to see if the simplest possible
-// case (no interaction with office-paste's own transformPastedHTML chain) works in CI.
-test("diagnostic: minimal non-Office span cleanup in isolation", async ({ page }) => {
-  await openPasteTestPage(page);
-  const editable = page.locator('[contenteditable="true"]');
-  await editable.click();
-  await page.keyboard.press("ControlOrMeta+A");
-  await page.keyboard.press("Delete");
-
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-  const minimalHtml = `<span class="">bare span text</span>`;
-  await page.evaluate(
-    async ({ html, text }) => {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          "text/html": new Blob([html], { type: "text/html" }),
-          "text/plain": new Blob([text], { type: "text/plain" }),
-        }),
-      ]);
-    },
-    { html: minimalHtml, text: "bare span text" },
-  );
-
-  // Intercept the paste event in the CAPTURE phase (guaranteed to run before ProseMirror's own
-  // bubble-phase listener on the same element, regardless of attachment order) to see the exact
-  // raw clipboardData ProseMirror itself would receive, and to independently replicate
-  // cleanup-empty-attrs.extension.ts's own check/DOMParser logic outside the extension entirely -
-  // this tells us whether the raw data or the DOM APIs themselves differ in CI, vs. the extension
-  // simply not running. Stashed on `window` (not returned via a Promise) so this setup call
-  // doesn't block waiting for a paste event that hasn't happened yet.
-  await editable.evaluate((el) => {
-    (window as unknown as { __diag?: unknown }).__diag = undefined;
-    el.addEventListener(
-      "paste",
-      (event) => {
-        const html = (event as ClipboardEvent).clipboardData?.getData("text/html") ?? "(none)";
-        const includesEmptyClass = html.includes('class=""');
-        let queryMatchCount = -1;
-        try {
-          const doc = new DOMParser().parseFromString(html, "text/html");
-          queryMatchCount = doc.querySelectorAll('[class=""]').length;
-        } catch {
-          queryMatchCount = -2;
-        }
-        (window as unknown as { __diag?: unknown }).__diag = { html, includesEmptyClass, queryMatchCount };
-      },
-      { capture: true, once: true },
-    );
-  });
-
-  await editable.click();
-  await page.keyboard.press("ControlOrMeta+V");
-  await page.waitForTimeout(1000);
-
-  const captured = await page.evaluate(() => (window as unknown as { __diag?: unknown }).__diag);
-  console.log("DIAGNOSTIC captured raw clipboardData:", JSON.stringify(captured));
-
-  const innerHTML = await editable.evaluate((el) => el.innerHTML);
-  console.log("DIAGNOSTIC minimal paste result:", innerHTML);
-});
 
 test("Office Paste Cleanup strips Word paste debris while preserving real content", async ({ page }) => {
   await openPasteTestPage(page);
