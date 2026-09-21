@@ -120,6 +120,23 @@ async function pasteWordHtml(page: Page): Promise<void> {
 }
 
 test("Office Paste Cleanup strips Word paste debris while preserving real content", async ({ page }) => {
+  // TEMPORARY diagnostics, registered before any navigation so nothing is missed. Every previous
+  // theory (delivery mechanism, packed nupkg vs dev build, Release vs Debug, extension-chunk load
+  // timing) has been ruled out via local A/B testing and further CI runs - the CI-only failure is
+  // still "2 spans, stuck" every time. This catches any failed network request for a .js chunk
+  // (e.g. a case-sensitivity mismatch between an import path and the actual file on Linux's
+  // case-sensitive filesystem, which would silently succeed on Windows/local) and any console/page
+  // error that a listener registered only during the paste (as in earlier diagnostics) would miss
+  // if it happens during the RTE's own initial extension loading, before the paste ever starts.
+  page.on("console", (msg) => console.log("BROWSER CONSOLE:", msg.type(), msg.text()));
+  page.on("pageerror", (err) => console.log("BROWSER PAGE ERROR:", err.message));
+  page.on("requestfailed", (req) => console.log("REQUEST FAILED:", req.url(), req.failure()?.errorText));
+  page.on("response", (res) => {
+    if (res.url().endsWith(".js") && res.status() >= 400) {
+      console.log("JS CHUNK BAD STATUS:", res.status(), res.url());
+    }
+  });
+
   await openPasteTestPage(page);
   await pasteWordHtml(page);
 
