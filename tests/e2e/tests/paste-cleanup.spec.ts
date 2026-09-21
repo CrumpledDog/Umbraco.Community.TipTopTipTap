@@ -21,21 +21,25 @@ import { test, expect, type Page } from "@playwright/test";
  * backoffice is built from), so no custom shadow-DOM query helper is needed here - same as
  * documented in Crumpled.UmbracoAzureHostingKit's tests/e2e suite.
  *
- * CI-only failure investigation (5 CI runs, resolved): the RTE's toolbar/contenteditable area
- * renders and becomes interactive before all of the data type's ~30 tiptap extensions (each its
- * own dynamically-imported JS chunk - `api: () => import(...)` in every extension's manifest,
- * including ours) have finished loading and registering their ProseMirror plugins. Locally this
- * gap is imperceptible; on CI's colder/slower runner it was wide enough that a paste fired before
- * "Office Paste Cleanup" was actually registered on the editor. Proven with temporary diagnostics
- * across several commits: a capture-phase `paste` listener confirmed the raw clipboardData
- * reaching the page, and an independent replica of the extension's own
- * `html.includes('class=""')` + `DOMParser`/`querySelectorAll` check, were both byte-identical
- * and correct in CI - the extension's OWN logic simply never ran, even though every dependency it
- * relies on (clipboard data, DOM APIs) worked. Delivery mechanism (synthetic `ClipboardEvent` vs
- * real OS clipboard + Ctrl+V) and build (packed nupkg vs dev build, Release vs Debug) were both
- * ruled out first via local A/B testing and further CI runs. Waiting for the network to settle
- * after opening the content node (below) gives every extension's chunk time to load before the
- * paste is attempted.
+ * CI-only failure investigation (9 CI runs, resolved - not a bug in this test or in the
+ * extension): the e2e job's own CI workflow was silently testing STALE code the whole time.
+ * `~/.nuget/packages` (the global NuGet package cache, restored via ci.yml/release.yml's own
+ * "Cache NuGet" step) is keyed by package ID + version, and this repo has never published a real
+ * release, so semantic-release's dry-run "next version" (e.g. `1.0.0-alpha.1`) was IDENTICAL
+ * across every run. `dotnet add package` saw that exact version already present in the cache from
+ * an earlier run and silently reused it instead of the fresh .nupkg each run had just packed -
+ * this repo's OWN packaging swap pattern (`dotnet remove reference` / `dotnet add package`) is
+ * used by two jobs, `test-packages` and `e2e`, and both were affected. Confirmed by dumping every
+ * `console`/`pageerror` from page load (not just during the paste, unlike two earlier diagnostic
+ * attempts that only listened during the paste itself and missed load-time output): CI's browser
+ * logged `"Hello from my extension 🎉"`, a leftover string that does not exist anywhere in this
+ * repo's current source - proof CI was running a stale/earlier build of the package, not this
+ * one. The real fix is in ci.yml/release.yml (`Clear cached local package` step, right before
+ * `Replace ProjectReference with PackageReference` in both jobs) - nothing here needed to change
+ * once that was found. Several earlier commits chased plausible-but-wrong theories first (paste
+ * delivery mechanism, packed-nupkg vs dev build, Release vs Debug, extension-chunk load timing) -
+ * each was ruled out with real evidence (temporary diagnostics, local A/B tests) before moving on,
+ * which is how the actual cause was eventually found.
  */
 
 /**
@@ -76,14 +80,6 @@ async function openPasteTestPage(page: Page): Promise<void> {
   await page.goto("/umbraco/section/content");
   await page.getByRole("link", { name: "Paste Test", exact: true }).first().click();
   await expect(page.locator('[contenteditable="true"]')).toBeVisible();
-
-  // See the file-level comment above: the editor is interactive before all of the data type's
-  // tiptap extensions (each a separate dynamically-imported chunk, including ours) have finished
-  // registering. Wait for the network to go quiet - covers a cold CI runner still fetching/
-  // evaluating those chunks - with a floor in case the persistent server-events WebSocket
-  // connection (see `serverEventHub` in the console log) keeps "networkidle" from ever firing.
-  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
-  await page.waitForTimeout(1_000);
 }
 
 async function pasteWordHtml(page: Page): Promise<void> {
@@ -120,23 +116,6 @@ async function pasteWordHtml(page: Page): Promise<void> {
 }
 
 test("Office Paste Cleanup strips Word paste debris while preserving real content", async ({ page }) => {
-  // TEMPORARY diagnostics, registered before any navigation so nothing is missed. Every previous
-  // theory (delivery mechanism, packed nupkg vs dev build, Release vs Debug, extension-chunk load
-  // timing) has been ruled out via local A/B testing and further CI runs - the CI-only failure is
-  // still "2 spans, stuck" every time. This catches any failed network request for a .js chunk
-  // (e.g. a case-sensitivity mismatch between an import path and the actual file on Linux's
-  // case-sensitive filesystem, which would silently succeed on Windows/local) and any console/page
-  // error that a listener registered only during the paste (as in earlier diagnostics) would miss
-  // if it happens during the RTE's own initial extension loading, before the paste ever starts.
-  page.on("console", (msg) => console.log("BROWSER CONSOLE:", msg.type(), msg.text()));
-  page.on("pageerror", (err) => console.log("BROWSER PAGE ERROR:", err.message));
-  page.on("requestfailed", (req) => console.log("REQUEST FAILED:", req.url(), req.failure()?.errorText));
-  page.on("response", (res) => {
-    if (res.url().endsWith(".js") && res.status() >= 400) {
-      console.log("JS CHUNK BAD STATUS:", res.status(), res.url());
-    }
-  });
-
   await openPasteTestPage(page);
   await pasteWordHtml(page);
 

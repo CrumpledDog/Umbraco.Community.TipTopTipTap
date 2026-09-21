@@ -335,6 +335,17 @@ jobs:
         </configuration>
         EOF
 
+    # NuGet's global package cache (~/.nuget/packages, restored by the "Cache NuGet" step above)
+    # is keyed by package ID + version, and this repo has never actually published a real
+    # release - semantic-release's dry-run "next version" (e.g. `1.0.0-alpha.1`) is therefore
+    # IDENTICAL across every CI run until a real release happens. Without clearing it first,
+    # `dotnet add package` sees "this exact version is already in the global cache" from an
+    # earlier run and silently reuses that STALE content instead of the .nupkg this run just
+    # packed - confirmed live: this made the e2e job silently test old code for 9 consecutive
+    # runs with no error of any kind, only wrong behavior.
+    - name: Clear cached local package (avoid stale content for same-version dev builds)
+      run: rm -rf ~/.nuget/packages/umbraco.community.tiptoptiptap
+
     - name: Replace ProjectReference with PackageReference
       working-directory: ${{ env.PATH_TO_TESTSITE }}
       shell: bash
@@ -460,6 +471,17 @@ jobs:
           </packageSourceMapping>
         </configuration>
         EOF
+
+    # NuGet's global package cache (~/.nuget/packages, restored by the "Cache NuGet" step above)
+    # is keyed by package ID + version, and this repo has never actually published a real
+    # release - semantic-release's dry-run "next version" (e.g. `1.0.0-alpha.1`) is therefore
+    # IDENTICAL across every CI run until a real release happens. Without clearing it first,
+    # `dotnet add package` sees "this exact version is already in the global cache" from an
+    # earlier run and silently reuses that STALE content instead of the .nupkg this run just
+    # packed - confirmed live: this made the e2e job silently test old code for 9 consecutive
+    # runs with no error of any kind, only wrong behavior.
+    - name: Clear cached local package (avoid stale content for same-version dev builds)
+      run: rm -rf ~/.nuget/packages/umbraco.community.tiptoptiptap
 
     - name: Replace ProjectReference with PackageReference
       working-directory: ${{ env.PATH_TO_TESTSITE }}

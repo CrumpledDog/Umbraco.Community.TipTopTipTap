@@ -283,6 +283,14 @@ jobs:
         </configuration>
         EOF
 
+    # See ci.yml's identical step for the full explanation: NuGet's global package cache is
+    # keyed by package ID + version, and dry-run semantic-release's "next version" is identical
+    # across every CI run until a real release happens, so without clearing it first,
+    # `dotnet add package` would silently reuse STALE cached content from an earlier run instead
+    # of the .nupkg this run just packed.
+    - name: Clear cached local package (avoid stale content for same-version dev builds)
+      run: rm -rf ~/.nuget/packages/umbraco.community.tiptoptiptap
+
     - name: Replace ProjectReference with PackageReference
       working-directory: ${{ env.PATH_TO_TESTSITE }}
       shell: bash
@@ -396,6 +404,14 @@ jobs:
           </packageSourceMapping>
         </configuration>
         EOF
+
+    # See ci.yml's identical step for the full explanation: NuGet's global package cache is
+    # keyed by package ID + version, and dry-run semantic-release's "next version" is identical
+    # across every CI run until a real release happens, so without clearing it first,
+    # `dotnet add package` would silently reuse STALE cached content from an earlier run instead
+    # of the .nupkg this run just packed.
+    - name: Clear cached local package (avoid stale content for same-version dev builds)
+      run: rm -rf ~/.nuget/packages/umbraco.community.tiptoptiptap
 
     - name: Replace ProjectReference with PackageReference
       working-directory: ${{ env.PATH_TO_TESTSITE }}
