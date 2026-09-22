@@ -25,9 +25,10 @@ hand-rolled Core/Client split) - the Client folder lives inside the same `.cspro
 (the `Microsoft.NET.Sdk.Razor` RCL still needs it to ship `App_Plugins` static web assets correctly) - no
 `Umbraco.Cms.Api.Common`/`Api.Management`, no `Microsoft.AspNetCore.OpenApi`, no Controllers/Composers
 folders. The real logic lives entirely under `Client/src/tiptap/`:
-`cleanup-empty-attrs.extension.ts` is the actual TipTap `Extension` (a ProseMirror plugin - strips empty
-`class`/`style` attrs from raw pasted HTML via `transformPastedHTML`, then strips attribute-less `span`
-marks from the resulting doc via `appendTransaction`); `office-paste.extension.ts` is the
+`paste-attribute-cleanup.extension.ts` is the actual TipTap `Extension` (a ProseMirror plugin - strips
+every `style` attribute, not just empty ones, plus empty `class=""` attrs, from raw pasted HTML via
+`transformPastedHTML`, then strips attribute-less `span` marks from the resulting doc via
+`appendTransaction`); `office-paste.extension.ts` is the
 `UmbTiptapExtensionApiBase` entry point combining it with the npm `@intevation/tiptap-extension-office-paste`
 package; `manifest.ts` registers it as a `tiptapExtension` (alias
 `Umbraco.Community.TipTopTipTap.OfficePaste`).

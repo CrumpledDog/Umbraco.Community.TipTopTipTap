@@ -1,10 +1,11 @@
 # Umbraco.Community.TipTopTipTap
 
 A Rich Text Editor (TipTap) extension for Umbraco that cleans up the debris Word/Office paste leaves
-behind: empty `class=""`/`style=""` attributes and meaningless empty `span` marks. It's layered on top of
-the [`@intevation/tiptap-extension-office-paste`](https://www.npmjs.com/package/@intevation/tiptap-extension-office-paste)
-npm package's own `mso-*` style and list cleanup, so pasted Word/Office content ends up genuinely clean
-instead of littered with dead attributes and pointless wrapper spans.
+behind: every `style` attribute (not just empty ones), empty `class=""` attributes, and meaningless empty
+`span` marks. It's layered on top of the
+[`@intevation/tiptap-extension-office-paste`](https://www.npmjs.com/package/@intevation/tiptap-extension-office-paste)
+npm package's own `mso-*` style and list cleanup, so pasted content ends up genuinely clean instead of
+carrying over the source application's inline formatting and dead attributes.
 
 <img src="icons/icon.png" width="120" height="120" alt="">
 
@@ -22,9 +23,10 @@ data type (see "How it works" below).
 The package registers a single TipTap extension, **Office Paste Cleanup**, with Umbraco's Rich Text Editor.
 It does two things:
 
-1. **On paste** (`transformPastedHTML`): before Umbraco's editor parses the pasted HTML, it strips any
-   `class=""` or `style=""` attribute that Word/Office left behind empty (a very common artifact of
-   copy-pasting from Word or Outlook).
+1. **On paste** (`transformPastedHTML`): before Umbraco's editor parses the pasted HTML, it strips every
+   `style` attribute (regardless of content) and any `class=""` attribute Word/Office left behind empty.
+   Inline styles from the source application (Word, a browser, another editor, etc.) are never allowed
+   through - only the site's own CSS should control how content looks.
 2. **After the paste lands in the document** (`appendTransaction`): it walks the resulting document and
    removes any `span` mark that has no meaningful attributes left, so editors aren't left with invisible,
    purposeless `<span>` wrappers cluttering the saved markup.

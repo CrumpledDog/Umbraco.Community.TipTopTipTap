@@ -2,23 +2,23 @@ import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 
 /**
- * Extension to clean up empty attributes and elements left by office-paste
+ * Extension to clean up attributes and elements left by office-paste
  * Runs after office-paste (priority 99998 < 99999) to:
- * - Remove empty class and style attributes during paste
+ * - Strip every style attribute (not just empty ones) and empty class attributes during paste
  * - Unwrap span tags with no attributes after document changes
  */
-export const CleanupEmptyAttrs = Extension.create({
-    name: 'cleanup-empty-attrs',
+export const PasteAttributeCleanup = Extension.create({
+    name: 'paste-attribute-cleanup',
     priority: 99998, // Run just after office-paste (priority 99999)
 
     addProseMirrorPlugins() {
         return [
             new Plugin({
-                key: new PluginKey('cleanup-empty-attrs'),
+                key: new PluginKey('paste-attribute-cleanup'),
                 props: {
                     transformPastedHTML(html: string): string {
                         // Only process if it looks like it might need cleanup
-                        if (html.includes('class=""') || html.includes('style=""') || html.includes('<span')) {
+                        if (html.includes('style=') || html.includes('class=""') || html.includes('<span')) {
                             const parser = new DOMParser();
                             const doc = parser.parseFromString(html, 'text/html');
 
@@ -27,8 +27,10 @@ export const CleanupEmptyAttrs = Extension.create({
                                 (node as Element).removeAttribute('class');
                             });
 
-                            // Remove empty style attributes
-                            doc.querySelectorAll('[style=""]').forEach((node) => {
+                            // Remove every style attribute, not just empty ones - pasted inline
+                            // styles (Word/Office or otherwise) should never leak the source
+                            // application's formatting into Umbraco content.
+                            doc.querySelectorAll('[style]').forEach((node) => {
                                 (node as Element).removeAttribute('style');
                             });
 

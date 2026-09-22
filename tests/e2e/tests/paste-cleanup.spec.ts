@@ -4,10 +4,10 @@ import { test, expect, type Page } from "@playwright/test";
  * Reproduces (as a real, committed test) what an earlier one-off/throwaway Playwright script
  * proved manually: pasting Word/Office-formatted HTML into a Rich Text Editor with the
  * "Office Paste Cleanup" tiptap extension enabled (see
- * src/Umbraco.Community.TipTopTipTap/Client/src/tiptap/cleanup-empty-attrs.extension.ts and
- * office-paste.extension.ts) strips the debris Office paste leaves behind - empty `class=""`/
- * `style=""` attributes and meaningless empty `<span>` wrappers - while leaving genuinely
- * meaningful markup (a real inline style, a bold run) intact.
+ * src/Umbraco.Community.TipTopTipTap/Client/src/tiptap/paste-attribute-cleanup.extension.ts and
+ * office-paste.extension.ts) strips the debris Office paste leaves behind - every `style`
+ * attribute (not just empty ones), empty `class=""` attributes, and meaningless empty `<span>`
+ * wrappers - while leaving genuinely meaningful structural markup (a bold run) intact.
  *
  * Fixture: tests/e2e/fixtures/seed.Umbraco.sqlite.db (restored into place before the DemoSite
  * starts - see package.json's restore-seed-db script and tests/e2e/README.md) already contains:
@@ -55,7 +55,8 @@ import { test, expect, type Page } from "@playwright/test";
  * paths rather than an under-specified fragment.
  *
  * mso-* junk: an empty class/style span, a bare <span><b>, an <o:p> tag, and a second paragraph
- * with a real (non-mso) inline style that must survive unchanged.
+ * with a real (non-mso) inline style that must be stripped too - the cleanup removes every style
+ * attribute on paste, not just mso-only/empty ones.
  */
 const WORD_PASTE_HTML = `
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
@@ -68,13 +69,13 @@ const WORD_PASTE_HTML = `
   <span style="">Hello </span><span class="" style=""><b>World</b></span> this is a paste test.<o:p></o:p>
 </p>
 <p style="color:#FF0000;mso-fareast-language:EN-US">
-  This paragraph keeps its real styling.<o:p></o:p>
+  This paragraph should lose its inline styling.<o:p></o:p>
 </p>
 <!--EndFragment-->
 </body>
 </html>
 `;
-const WORD_PASTE_PLAIN_TEXT = "Hello World this is a paste test. This paragraph keeps its real styling.";
+const WORD_PASTE_PLAIN_TEXT = "Hello World this is a paste test. This paragraph should lose its inline styling.";
 
 async function openPasteTestPage(page: Page): Promise<void> {
   await page.goto("/umbraco/section/content");
@@ -170,16 +171,13 @@ test("Office Paste Cleanup strips Word paste debris while preserving real conten
   // The bold run ("World", originally wrapped in a bare <span><b>) became a clean <strong>.
   expect(result.strongTexts.some((t) => t?.includes("World"))).toBe(true);
 
-  // The second paragraph's real (non-mso) inline style survived - the cleanup is surgical, not
-  // destructive.
-  const styledParagraph = result.paragraphs.find((p) => p.text?.includes("keeps its real styling"));
-  expect(styledParagraph, "styled paragraph should still be present").toBeTruthy();
-  expect(styledParagraph?.style, "real inline style should survive unchanged").toBeTruthy();
-  expect(styledParagraph?.style).toContain("color");
-  expect(styledParagraph?.style).not.toBe("");
+  // The second paragraph's real (non-mso) inline style was stripped too - the cleanup removes
+  // every style attribute on paste, not just mso-only/empty ones.
+  const styledParagraph = result.paragraphs.find((p) => p.text?.includes("lose its inline styling"));
+  expect(styledParagraph, "second paragraph should still be present").toBeTruthy();
+  expect(styledParagraph?.style === null || styledParagraph?.style === "").toBe(true);
 
-  // And, for completeness, the mso-only-styled first paragraph is genuinely empty of style now,
-  // not just "some junk removed" - it never had a real style property to keep in the first place.
+  // And the mso-only-styled first paragraph is genuinely empty of style too.
   const firstParagraph = result.paragraphs.find((p) => p.text?.includes("paste test"));
   expect(firstParagraph?.style === null || firstParagraph?.style === "").toBe(true);
 });
