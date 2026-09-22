@@ -1,23 +1,40 @@
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
+import type { EditorView } from '@tiptap/pm/view';
+import OfficePaste from '@intevation/tiptap-extension-office-paste';
+
+// ProseMirror only ever invokes ONE plugin's `transformPastedHTML` - it resolves the prop via
+// `someProp`, which returns as soon as any plugin's handler produces a truthy result (see
+// prosemirror-view's EditorView.someProp), and office-paste's handler always returns a string
+// (even when it's a no-op passthrough for non-Word HTML), so it "wins" and our own handler would
+// never run if registered as a second, separate plugin. Confirmed live: real Word paste left
+// non-mso `style`/`class` values on headings completely untouched. The fix is to not rely on two
+// competing plugins at all - pull office-paste's own transform function out and call it ourselves,
+// first, inside this extension's single `transformPastedHTML`, so both cleanups are guaranteed to
+// run every time regardless of plugin registration order.
+const getOfficePastePlugins = OfficePaste.config.addProseMirrorPlugins as unknown as () => Plugin[];
+const officePasteTransformPastedHTML = getOfficePastePlugins()[0].props
+    .transformPastedHTML as (html: string, view: EditorView) => string;
 
 /**
- * Extension to clean up attributes and elements left by office-paste
- * Runs after office-paste (priority 99998 < 99999) to:
- * - Strip every style attribute (not just empty ones) and empty class attributes during paste
- * - Unwrap span tags with no attributes after document changes
+ * Extension to clean up attributes and elements left by office-paste.
+ * Runs office-paste's own mso-style/list/bookmark cleanup first, then:
+ * - Strips every style attribute (not just empty ones) and empty class attributes during paste
+ * - Unwraps span tags with no attributes after document changes
  */
 export const PasteAttributeCleanup = Extension.create({
     name: 'paste-attribute-cleanup',
-    priority: 99998, // Run just after office-paste (priority 99999)
+    priority: 99999,
 
     addProseMirrorPlugins() {
         return [
             new Plugin({
                 key: new PluginKey('paste-attribute-cleanup'),
                 props: {
-                    transformPastedHTML(html: string): string {
-                        // Only process if it looks like it might need cleanup
+                    transformPastedHTML(html: string, view: EditorView): string {
+                        html = officePasteTransformPastedHTML(html, view);
+
+                        // Only process further if it looks like it might need cleanup
                         if (html.includes('style=') || html.includes('class=""') || html.includes('<span')) {
                             const parser = new DOMParser();
                             const doc = parser.parseFromString(html, 'text/html');
