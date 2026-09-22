@@ -153,6 +153,18 @@ jobs:
       working-directory: ${{ env.PATH_TO_CLIENT }}
       run: npm ci
 
+    # Must run BEFORE "Build Client" below - it stamps the real semver into
+    # Client/public/umbraco-package.json, and Vite copies public/ into the build output verbatim.
+    # Running it after the build (as this used to) meant the packed package's umbraco-package.json
+    # always shipped the placeholder "0.0.0", which Umbraco's backoffice uses as the bundle JS's
+    # cache-busting query string - so every release looked identical to the browser's HTTP cache.
+    - name: Update Version Files
+      id: update-version
+      uses: CrumpledDog/Crumpled.Umbraco.Package.Actions/update-version-files@main
+      with:
+        semver: ${{ needs.setup.outputs.semver }}
+        path-to-extension: src/Umbraco.Community.TipTopTipTap
+
     # This package ships zero backend C# logic - the Client bundle is the whole product, and it
     # must be built (into src/Umbraco.Community.TipTopTipTap/wwwroot/App_Plugins/**) *before* the
     # DemoSite is built below, since the DemoSite picks up the package's static web assets at its
@@ -160,13 +172,6 @@ jobs:
     - name: Build Client
       working-directory: ${{ env.PATH_TO_CLIENT }}
       run: npm run build
-
-    - name: Update Version Files
-      id: update-version
-      uses: CrumpledDog/Crumpled.Umbraco.Package.Actions/update-version-files@main
-      with:
-        semver: ${{ needs.setup.outputs.semver }}
-        path-to-extension: src/Umbraco.Community.TipTopTipTap
 
     - name: Dotnet Format check
       run: dotnet format --verify-no-changes --verbosity diagnostic
