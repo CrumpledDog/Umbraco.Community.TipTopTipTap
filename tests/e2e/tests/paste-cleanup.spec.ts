@@ -287,6 +287,7 @@ test("Office Paste Cleanup removes embedded <style> blocks so class rules can't 
   const result = await editable.evaluate((el) => ({
     styleBlockCount: el.querySelectorAll("style").length,
     styleAttrCount: el.querySelectorAll("[style]").length,
+    classAttrCount: el.querySelectorAll("[class]").length,
   }));
 
   // If the <style> block survives, ProseMirror's own readHTML() re-applies its rules as inline
@@ -295,4 +296,10 @@ test("Office Paste Cleanup removes embedded <style> blocks so class rules can't 
   // exact failure mode while every <style>-block-free fixture above passed clean.
   expect(result.styleBlockCount, "no <style> block should survive into the editor content").toBe(0);
   expect(result.styleAttrCount, "no element should have a style attribute reconstructed from a class rule").toBe(0);
+
+  // The MsoSubtitle class itself must be gone too, not just the stylesheet that gave it meaning -
+  // real Word documents produce an effectively unbounded set of Mso* class names beyond the one
+  // (MsoNormal) office-paste's own transformMsoHtmlClasses knows to strip, so this cleanup removes
+  // every class attribute outright rather than trying to enumerate them all.
+  expect(result.classAttrCount, "no element should retain a class attribute").toBe(0);
 });

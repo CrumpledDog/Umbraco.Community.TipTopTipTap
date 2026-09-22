@@ -18,9 +18,11 @@ const officePasteTransformPastedHTML = getOfficePastePlugins()[0].props
 
 /**
  * Extension to clean up attributes and elements left by office-paste.
- * Runs office-paste's own mso-style/list/bookmark cleanup first, then:
- * - Strips every style attribute (not just empty ones) and empty class attributes during paste
- * - Unwraps span tags with no attributes after document changes
+ * Runs office-paste's own list/bookmark cleanup first (the one part of it worth keeping - its own
+ * style/class cleanup is superseded below, see comments), then:
+ * - Strips every style attribute, every class attribute, and any <style> block during paste
+ * - Unwraps <span> elements left with no attributes at all, both at the raw-HTML stage below and
+ *   (belt-and-braces) as ProseMirror marks in appendTransaction
  */
 export const PasteAttributeCleanup = Extension.create({
     name: 'paste-attribute-cleanup',
@@ -35,7 +37,7 @@ export const PasteAttributeCleanup = Extension.create({
                         html = officePasteTransformPastedHTML(html, view);
 
                         // Only process further if it looks like it might need cleanup
-                        if (html.includes('style=') || html.includes('class=""') || html.includes('<span') || html.includes('<style')) {
+                        if (html.includes('style=') || html.includes('class=') || html.includes('<span') || html.includes('<style')) {
                             const parser = new DOMParser();
                             const doc = parser.parseFromString(html, 'text/html');
 
@@ -53,8 +55,15 @@ export const PasteAttributeCleanup = Extension.create({
                             // was unaffected either way - that's why it wasn't caught earlier.
                             doc.querySelectorAll('style').forEach((node) => node.remove());
 
-                            // Remove empty class attributes
-                            doc.querySelectorAll('[class=""]').forEach((node) => {
+                            // Remove every class attribute, not just empty ones. office-paste's own
+                            // transformMsoHtmlClasses only strips the literal "MsoNormal" class -
+                            // Word also produces MsoTitle/MsoSubtitle/MsoTocHeading/MsoToc1-9/
+                            // MsoCommentText/MsoHeader/MsoCaption/etc. depending on version and
+                            // locale, an effectively unbounded list not worth enumerating. With the
+                            // <style> block already gone these classes have no visual effect left,
+                            // but "fully clean html" means removing them outright rather than
+                            // leaving dead Word class names sitting in the markup.
+                            doc.querySelectorAll('[class]').forEach((node) => {
                                 (node as Element).removeAttribute('class');
                             });
 
@@ -63,6 +72,21 @@ export const PasteAttributeCleanup = Extension.create({
                             // application's formatting into Umbraco content.
                             doc.querySelectorAll('[style]').forEach((node) => {
                                 (node as Element).removeAttribute('style');
+                            });
+
+                            // Unwrap any <span> left with no attributes at all. Now that style/
+                            // class are always stripped above, a bare <span> serves no purpose.
+                            // Doing this here - on the raw pasted HTML, before ProseMirror parses
+                            // it into the document schema - is more reliable than the mark-based
+                            // cleanup in appendTransaction below, which only fires if this RTE's
+                            // schema happens to register a generic "span" mark type at all.
+                            doc.querySelectorAll('span').forEach((node) => {
+                                if (node.attributes.length === 0) {
+                                    while (node.firstChild) {
+                                        node.parentNode?.insertBefore(node.firstChild, node);
+                                    }
+                                    node.remove();
+                                }
                             });
 
                             return doc.documentElement.outerHTML;
