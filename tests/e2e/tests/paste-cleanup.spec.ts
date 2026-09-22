@@ -77,13 +77,44 @@ const WORD_PASTE_HTML = `
 `;
 const WORD_PASTE_PLAIN_TEXT = "Hello World this is a paste test. This paragraph should lose its inline styling.";
 
+/**
+ * Word's list-as-paragraphs shape: numbered items are actually `<p style="mso-list:...">`
+ * elements with a hidden numeral span, not a real `<ol>/<li>`. office-paste's own
+ * transformLists is the ONLY code that converts this into real list markup - our own
+ * PasteAttributeCleanup extension has no list logic at all.
+ *
+ * This exists to guard against a real regression found and fixed: ProseMirror only ever
+ * invokes ONE plugin's `transformPastedHTML` (see `someProp` in prosemirror-view - it returns
+ * on the first plugin whose handler produces a truthy result, and a handler that returns the
+ * html unchanged is still truthy). Registering office-paste and PasteAttributeCleanup as two
+ * separate plugins meant only one of them ever actually ran, depending on registration order -
+ * a document like WORD_PASTE_HTML above happened to still get fully style-stripped either way,
+ * which is why that test alone didn't catch it, but office-paste's list conversion would have
+ * silently stopped working if PasteAttributeCleanup's plugin ended up "winning" instead (verified
+ * live in the browser while diagnosing the bug). The fix (paste-attribute-cleanup.extension.ts)
+ * calls office-paste's transform function directly from inside PasteAttributeCleanup's own single
+ * `transformPastedHTML`, so both cleanups are guaranteed to run regardless of plugin order - this
+ * test asserts BOTH effects (real `<ol>/<li>` AND stripped styles) show up from one paste.
+ */
+const WORD_LIST_PASTE_HTML = `
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns="http://www.w3.org/TR/REC-html40">
+<body lang="EN-US">
+<!--StartFragment-->
+<p class="MsoNormal" style="mso-list:l0 level1 lfo1"><!--[if !supportLists]--><span style="mso-list:Ignore">1.<span style="font:7.0pt Times New Roman">&nbsp;&nbsp;</span></span><!--[endif]-->First item<o:p></o:p></p>
+<p class="MsoNormal" style="mso-list:l0 level1 lfo1"><!--[if !supportLists]--><span style="mso-list:Ignore">2.<span style="font:7.0pt Times New Roman">&nbsp;&nbsp;</span></span><!--[endif]-->Second item<o:p></o:p></p>
+<!--EndFragment-->
+</body>
+</html>
+`;
+const WORD_LIST_PASTE_PLAIN_TEXT = "First item Second item";
+
 async function openPasteTestPage(page: Page): Promise<void> {
   await page.goto("/umbraco/section/content");
   await page.getByRole("link", { name: "Paste Test", exact: true }).first().click();
   await expect(page.locator('[contenteditable="true"]')).toBeVisible();
 }
 
-async function pasteWordHtml(page: Page): Promise<void> {
+async function pasteHtml(page: Page, html: string, text: string): Promise<void> {
   const editable = page.locator('[contenteditable="true"]');
   await editable.click();
 
@@ -105,20 +136,21 @@ async function pasteWordHtml(page: Page): Promise<void> {
         }),
       ]);
     },
-    { html: WORD_PASTE_HTML, text: WORD_PASTE_PLAIN_TEXT },
+    { html, text },
   );
   await editable.click();
   await page.keyboard.press("ControlOrMeta+V");
-
-  // Let the paste + our ProseMirror plugins (transformPastedHTML, then appendTransaction's
-  // empty-span-mark removal) settle before reading the result back out.
-  await expect(editable.locator("strong")).toBeVisible();
-  await expect(editable.locator("span")).toHaveCount(0, { timeout: 10_000 });
 }
 
 test("Office Paste Cleanup strips Word paste debris while preserving real content", async ({ page }) => {
   await openPasteTestPage(page);
-  await pasteWordHtml(page);
+  await pasteHtml(page, WORD_PASTE_HTML, WORD_PASTE_PLAIN_TEXT);
+
+  const editableAfterPaste = page.locator('[contenteditable="true"]');
+  // Let the paste + our ProseMirror plugins (transformPastedHTML, then appendTransaction's
+  // empty-span-mark removal) settle before reading the result back out.
+  await expect(editableAfterPaste.locator("strong")).toBeVisible();
+  await expect(editableAfterPaste.locator("span")).toHaveCount(0, { timeout: 10_000 });
 
   // The Save button re-enables optimistically before the actual persist request resolves, so
   // waiting on button state alone can race a reload against an in-flight save (confirmed live:
@@ -180,4 +212,24 @@ test("Office Paste Cleanup strips Word paste debris while preserving real conten
   // And the mso-only-styled first paragraph is genuinely empty of style too.
   const firstParagraph = result.paragraphs.find((p) => p.text?.includes("paste test"));
   expect(firstParagraph?.style === null || firstParagraph?.style === "").toBe(true);
+});
+
+test("Office Paste Cleanup converts Word lists AND strips styles from the same paste", async ({ page }) => {
+  await openPasteTestPage(page);
+  await pasteHtml(page, WORD_LIST_PASTE_HTML, WORD_LIST_PASTE_PLAIN_TEXT);
+
+  const editable = page.locator('[contenteditable="true"]');
+  await expect(editable.locator("li")).toHaveCount(2, { timeout: 10_000 });
+
+  const result = await editable.evaluate((el) => ({
+    listItemTexts: Array.from(el.querySelectorAll("li")).map((li) => li.textContent?.trim()),
+    styleAttrCount: el.querySelectorAll("[style]").length,
+  }));
+
+  // office-paste's own list conversion (the only code that does this - our extension has no
+  // list logic) must still run: real <li> elements, not leftover mso-list paragraphs.
+  expect(result.listItemTexts).toEqual(["First item", "Second item"]);
+
+  // And PasteAttributeCleanup's own style stripping must ALSO run on the very same paste.
+  expect(result.styleAttrCount, "no element should retain a style attribute").toBe(0);
 });
