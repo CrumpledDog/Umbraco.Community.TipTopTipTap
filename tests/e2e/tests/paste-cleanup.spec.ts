@@ -108,6 +108,49 @@ const WORD_LIST_PASTE_HTML = `
 `;
 const WORD_LIST_PASTE_PLAIN_TEXT = "First item Second item";
 
+/**
+ * Word's other real-world shape: a `<style>` block embedded in `<head>` defining rules for the
+ * `Mso*` classes it puts on paragraphs/headings (`.MsoTitle`, `.MsoSubtitle`, `.MsoToc1`, etc.) -
+ * generic content here, not a real captured document (this needed a synthetic-but-structurally-
+ * faithful fixture, not the actual clipboard capture used to originally diagnose this, which
+ * contained a real client name).
+ *
+ * Guards a second real regression found and fixed on top of the someProp one above: even with
+ * both cleanups guaranteed to run, a real Word document still came out completely unstripped in
+ * production while every synthetic fixture in this file (none of which include a `<style>` block)
+ * passed. Root cause, found by reading prosemirror-view's own source: `readHTML()` runs AFTER
+ * `transformPastedHTML` and walks any stylesheets still present in the pasted HTML, re-applying
+ * their CSS rules as inline styles onto matching elements by class selector ("Inline styles
+ * defined in the pasted content, so that parse rules pick them up"). Our extension stripped every
+ * `style`/empty-`class` attribute but never touched the `<style>` block itself or the non-empty
+ * class names - so ProseMirror silently reconstructed the exact inline styles we'd just stripped,
+ * straight from the surviving `.MsoSubtitle { ... }` rule, immediately after our cleanup ran. Fixed
+ * by removing `<style>` elements in paste-attribute-cleanup.extension.ts's transformPastedHTML.
+ */
+const WORD_STYLESHEET_PASTE_HTML = `
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<style>
+<!--
+ p.MsoSubtitle, li.MsoSubtitle, div.MsoSubtitle
+	{margin:0cm 0cm 8.0pt;
+	font-size:14.0pt;
+	font-family:"Arial",sans-serif;
+	color:#595959;
+	letter-spacing:.75pt;}
+-->
+</style>
+</head>
+<body lang="EN-US">
+<!--StartFragment-->
+<p class="MsoSubtitle">Example subtitle text<o:p></o:p></p>
+<!--EndFragment-->
+</body>
+</html>
+`;
+const WORD_STYLESHEET_PASTE_PLAIN_TEXT = "Example subtitle text";
+
 async function openPasteTestPage(page: Page): Promise<void> {
   await page.goto("/umbraco/section/content");
   await page.getByRole("link", { name: "Paste Test", exact: true }).first().click();
@@ -232,4 +275,24 @@ test("Office Paste Cleanup converts Word lists AND strips styles from the same p
 
   // And PasteAttributeCleanup's own style stripping must ALSO run on the very same paste.
   expect(result.styleAttrCount, "no element should retain a style attribute").toBe(0);
+});
+
+test("Office Paste Cleanup removes embedded <style> blocks so class rules can't reconstruct stripped styles", async ({ page }) => {
+  await openPasteTestPage(page);
+  await pasteHtml(page, WORD_STYLESHEET_PASTE_HTML, WORD_STYLESHEET_PASTE_PLAIN_TEXT);
+
+  const editable = page.locator('[contenteditable="true"]');
+  await expect(editable).toContainText("Example subtitle text", { timeout: 10_000 });
+
+  const result = await editable.evaluate((el) => ({
+    styleBlockCount: el.querySelectorAll("style").length,
+    styleAttrCount: el.querySelectorAll("[style]").length,
+  }));
+
+  // If the <style> block survives, ProseMirror's own readHTML() re-applies its rules as inline
+  // styles onto matching elements immediately after our cleanup runs - this is the actual
+  // regression, not a hypothetical: production paste of a real Word document reproduced this
+  // exact failure mode while every <style>-block-free fixture above passed clean.
+  expect(result.styleBlockCount, "no <style> block should survive into the editor content").toBe(0);
+  expect(result.styleAttrCount, "no element should have a style attribute reconstructed from a class rule").toBe(0);
 });

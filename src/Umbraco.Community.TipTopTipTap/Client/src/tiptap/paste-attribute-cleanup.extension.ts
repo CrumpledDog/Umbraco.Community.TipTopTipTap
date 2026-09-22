@@ -35,9 +35,23 @@ export const PasteAttributeCleanup = Extension.create({
                         html = officePasteTransformPastedHTML(html, view);
 
                         // Only process further if it looks like it might need cleanup
-                        if (html.includes('style=') || html.includes('class=""') || html.includes('<span')) {
+                        if (html.includes('style=') || html.includes('class=""') || html.includes('<span') || html.includes('<style')) {
                             const parser = new DOMParser();
                             const doc = parser.parseFromString(html, 'text/html');
+
+                            // Remove <style> blocks entirely. ProseMirror's own readHTML()
+                            // (prosemirror-view) runs AFTER transformPastedHTML and walks any
+                            // stylesheets still present in the pasted HTML, re-applying their CSS
+                            // rules as inline styles onto matching elements by class selector
+                            // ("Inline styles defined in the pasted content, so that parse rules
+                            // pick them up"). Word always embeds a <style> block defining
+                            // .MsoNormal/.MsoSubtitle/.MsoToc1/etc. - left in place, it silently
+                            // reconstructs the exact inline styles we just stripped below, straight
+                            // from those class rules. Confirmed live: a real Word document survived
+                            // paste cleanup completely intact until this line was added, while a
+                            // plain fragment with no <style> block (nothing to reconstruct from)
+                            // was unaffected either way - that's why it wasn't caught earlier.
+                            doc.querySelectorAll('style').forEach((node) => node.remove());
 
                             // Remove empty class attributes
                             doc.querySelectorAll('[class=""]').forEach((node) => {
