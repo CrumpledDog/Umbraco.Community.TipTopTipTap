@@ -7,7 +7,7 @@ behind: every `style` attribute (not just empty ones), empty `class=""` attribut
 npm package's own `mso-*` style and list cleanup, so pasted content ends up genuinely clean instead of
 carrying over the source application's inline formatting and dead attributes.
 
-<img src="icons/icon.png" width="120" height="120" alt="">
+<img src="https://raw.githubusercontent.com/CrumpledDog/Umbraco.Community.TipTopTipTap/release/v1/icons/icon.png" width="120" height="120" alt="">
 
 ## Installation
 
@@ -50,16 +50,18 @@ needed:
 
 ## Testing
 
-A Playwright end-to-end suite lives at [`tests/e2e/`](tests/e2e/) and exercises the actual paste-cleanup
-behaviour against a real backoffice (login, paste crafted Word-style HTML into a seeded Rich Text Editor
-property, save, and assert on the resulting markup via a real DOM parse). See
-[`tests/e2e/README.md`](tests/e2e/README.md) for how to run it locally and how to regenerate its seed
-database fixture.
+A Playwright end-to-end suite lives at
+[`tests/e2e/`](https://github.com/CrumpledDog/Umbraco.Community.TipTopTipTap/tree/release/v1/tests/e2e/) and
+exercises the actual paste-cleanup behaviour against a real backoffice (login, paste crafted Word-style HTML
+into a seeded Rich Text Editor property, save, and assert on the resulting markup via a real DOM parse). See
+[`tests/e2e/README.md`](https://github.com/CrumpledDog/Umbraco.Community.TipTopTipTap/blob/release/v1/tests/e2e/README.md)
+for how to run it locally and how to regenerate its seed database fixture.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the branching strategy and formatting requirements.
+See [CONTRIBUTING.md](https://github.com/CrumpledDog/Umbraco.Community.TipTopTipTap/blob/release/v1/CONTRIBUTING.md)
+for the branching strategy and formatting requirements.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](https://github.com/CrumpledDog/Umbraco.Community.TipTopTipTap/blob/release/v1/LICENSE)
