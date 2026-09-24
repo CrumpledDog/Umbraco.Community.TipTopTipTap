@@ -1,0 +1,30 @@
+{
+  "$schema": "https://marketplace.umbraco.com/umbraco-marketplace-schema.json",
+  "Title": "TipTopTipTap",
+  "AuthorDetails": {
+    "Name": "Crumpled Dog",
+    "Description": "Umbraco consultants and developers specialising in Cloudflare, Azure, LLMs, AI, and Agents",
+    "Url": "https://github.com/CrumpledDog",
+    "ImageUrl": "https://github.com/crumpleddog.png",
+    "Contributors": [
+      {
+        "Name": "Crumpled Dog",
+        "Url": "https://github.com/CrumpledDog/"
+      },
+      {
+        "Name": "Jeavon Leopold",
+        "Url": "https://github.com/Jeavon"
+      },
+      {
+        "Name": "Marc Goodson",
+        "Url": "https://github.com/marcemarc"
+      }
+    ]
+  },
+  "Category": "Developer Tools",
+  "IssueTrackerUrl": "https://github.com/CrumpledDog/Umbraco.Community.TipTopTipTap/issues",
+  "LicenseTypes": [ "Free" ],
+  "PackageType": "Package",
+  "Tags": [ "TipTap", "Rich Text Editor", "RTE", "Paste Cleanup", "Word", "Office" ],
+  "VersionDependencyMode": "SemVer"
+}
