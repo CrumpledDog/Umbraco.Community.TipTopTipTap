@@ -94,17 +94,15 @@ git worktree remove <path>  # remove one you no longer need (must be clean - com
 A handful of files are intended to always diverge between the two branch lines (see `/.gitattributes`
 `merge=ours` entries): `Directory.Packages.props` (the `Umbraco.Cms.*` package version pins),
 `Directory.Build.props` (`<UmbracoTargetMajor>`), `.releaserc` (each branch line's own semantic-release
-config), and `Client/package.json`/`package-lock.json` (the `@umbraco-cms/backoffice` version pin and the
-`generate-client` script's hardcoded OpenAPI discovery URL - Umbraco 17 exposes it at
-`/umbraco/swagger/<name>/swagger.json`, Umbraco 18 at `/umbraco/openapi/<name>.json`). Run
-`git config merge.ours.driver true` once per clone/worktree for this to take effect. The one genuine
-code-level difference between the two majors -
-OpenAPI document registration (Umbraco 17 uses Swashbuckle, Umbraco 18 uses ASP.NET Core's native OpenAPI) -
-is isolated into `Composers/OpenApiRegistration.Umbraco17.cs`/`.Umbraco18.cs`, both present in the source
-tree on both branches but conditionally excluded from compilation via `$(UmbracoTargetMajor)` in the
-`.csproj`. If a merge from `develop/v1` into `develop/v2` hits a genuine breaking-API conflict elsewhere
-(not just a version-range bump), resolve it file-by-file rather than introducing more conditional
-compilation — only reconsider that approach if conflicts become frequent.
+config), and `Client/package.json`/`package-lock.json` (the `@umbraco-cms/backoffice` version pin). Run
+`git config merge.ours.driver true` once per clone/worktree for this to take effect.
+
+**Note**: this package ships zero backend C# logic - it's a pure `Client/` backoffice UI extension (a
+TipTap Rich Text Editor extension, see "Repo shape" in `.github/copilot-instructions.md`), so unlike most
+Crumpled packages there is no Management API and no OpenAPI/Swashbuckle-vs-native-OpenAPI divergence to
+isolate between the two Umbraco majors. If a merge from `develop/v1` into `develop/v2` hits a genuine
+breaking-API conflict in the `@umbraco-cms/backoffice` types the Client code uses, resolve it file-by-file
+rather than introducing conditional compilation.
 
 ## Commit Messages
 

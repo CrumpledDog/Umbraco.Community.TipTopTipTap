@@ -20,9 +20,9 @@
   <PropertyGroup>
     <PackageId>Umbraco.Community.TipTopTipTap</PackageId>
     <Product>Umbraco.Community.TipTopTipTap</Product>
-    <Title>Crumpled Package Template</Title>
-    <Description>TODO: describe what Umbraco.Community.TipTopTipTap does.</Description>
-    <PackageTags>umbraco plugin package umbraco-marketplace</PackageTags>
+    <Title>TipTopTipTap</Title>
+    <Description>A Rich Text Editor (TipTap) extension for Umbraco that cleans up the debris Word/Office paste leaves behind - empty class="" and style="" attributes, and meaningless empty span marks - layered on top of @intevation/tiptap-extension-office-paste's own mso-style and list cleanup.</Description>
+    <PackageTags>umbraco plugin package umbraco-marketplace tiptap rte richtext office-paste word-paste</PackageTags>
     <RootNamespace>Umbraco.Community.TipTopTipTap</RootNamespace>
     <Authors>Crumpled Dog</Authors>
     <PackageProjectUrl>https://github.com/CrumpledDog/Umbraco.Community.TipTopTipTap</PackageProjectUrl>
@@ -34,30 +34,16 @@
     <InformationalVersion>$(PackageVersion)</InformationalVersion>
   </PropertyGroup>
 
-  <!-- Central package management - no versions -->
+  <!--
+    Central package management - no versions. This package ships zero backend C# logic (it's a pure
+    Client/ backoffice UI extension - see the TipTap office-paste cleanup extension under Client/src/tiptap),
+    so it only needs Umbraco.Cms.Web.Common: the Microsoft.NET.Sdk.Razor RCL still needs it to correctly
+    ship App_Plugins static web assets as part of an Umbraco package. There's no Management API, so
+    Umbraco.Cms.Api.Common/Api.Management/Microsoft.AspNetCore.OpenApi are intentionally not referenced.
+  -->
   <ItemGroup>
-    <PackageReference Include="Umbraco.Cms.Api.Common" />
-    <PackageReference Include="Umbraco.Cms.Api.Management" />
     <PackageReference Include="Umbraco.Cms.Web.Common" />
-    <PackageReference Include="Umbraco.Cms.Web.Website" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="All" />
-
-    <!--
-      Microsoft.AspNetCore.OpenApi is available transitively from the Umbraco packages above, but we take a
-      direct dependency here because extension code directly uses types from it and from Microsoft.OpenApi
-      (OpenApiInfo) - both OpenApiRegistration.Umbraco17.cs and .Umbraco18.cs need this pinned to the .NET
-      runtime's own version rather than left to NuGet's transitive resolution, or the different
-      Microsoft.OpenApi versions can conflict at runtime and cause the custom OpenAPI document to not appear.
-    -->
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
-  </ItemGroup>
-
-  <!-- Only one of these two files is ever compiled - see the comment atop each. -->
-  <ItemGroup Condition="'$(UmbracoTargetMajor)' == '17'">
-    <Compile Remove="Composers\OpenApiRegistration.Umbraco18.cs" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(UmbracoTargetMajor)' == '18'">
-    <Compile Remove="Composers\OpenApiRegistration.Umbraco17.cs" />
   </ItemGroup>
 
   <ItemGroup>

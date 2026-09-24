@@ -1,21 +1,37 @@
 # Copilot / Agent Instructions — Umbraco.Community.TipTopTipTap
 
-TODO: describe what this package does. See [README.md](../README.md) for the feature overview and
-[CONTRIBUTING.md](../CONTRIBUTING.md) for the full branching strategy.
+A Rich Text Editor (TipTap) extension for Umbraco that cleans up the debris Word/Office paste leaves
+behind - empty `class=""`/`style=""` attributes and meaningless empty `span` marks - layered on top of the
+`@intevation/tiptap-extension-office-paste` npm package's own mso-style/list cleanup. See
+[README.md](../README.md) for the feature overview and [CONTRIBUTING.md](../CONTRIBUTING.md) for the full
+branching strategy.
 
 ## Repo shape
 
 ```
 src/
-  Umbraco.Community.TipTopTipTap/            - the whole package: Management API, Composers, and (if generated
-                                          with a backoffice UI) the embedded Client/ (Lit/TS)
+  Umbraco.Community.TipTopTipTap/            - the whole package: just the embedded Client/ (Lit/TS)
+                                                backoffice UI - no backend C# logic, no Management API
   Umbraco.Community.TipTopTipTap.DemoSite/   - minimal Umbraco 17 site, CI-only fixture (no starter kit)
 tests/
-  Umbraco.Community.TipTopTipTap.Tests/
+  Umbraco.Community.TipTopTipTap.Tests/      - no C# logic exists to unit test; kept as scaffolding
+                                                only, in case backend logic is ever added
 ```
 
 Single packable project, generated from Umbraco's own `umbraco-extension` dotnet template (not a
 hand-rolled Core/Client split) - the Client folder lives inside the same `.csproj`, not a separate one.
+
+**This package is 100% frontend.** The `.csproj` intentionally references only `Umbraco.Cms.Web.Common`
+(the `Microsoft.NET.Sdk.Razor` RCL still needs it to ship `App_Plugins` static web assets correctly) - no
+`Umbraco.Cms.Api.Common`/`Api.Management`, no `Microsoft.AspNetCore.OpenApi`, no Controllers/Composers
+folders. The real logic lives entirely under `Client/src/tiptap/`:
+`paste-attribute-cleanup.extension.ts` is the actual TipTap `Extension` (a ProseMirror plugin - strips
+every `style` attribute, not just empty ones, plus empty `class=""` attrs, from raw pasted HTML via
+`transformPastedHTML`, then strips attribute-less `span` marks from the resulting doc via
+`appendTransaction`); `office-paste.extension.ts` is the
+`UmbTiptapExtensionApiBase` entry point combining it with the npm `@intevation/tiptap-extension-office-paste`
+package; `manifest.ts` registers it as a `tiptapExtension` (alias
+`Umbraco.Community.TipTopTipTap.OfficePaste`).
 
 ## Two Umbraco majors, one repo
 
@@ -24,22 +40,23 @@ hand-rolled Core/Client split) - the Client folder lives inside the same `.cspro
 never cherry-pick. See CONTRIBUTING.md's "Umbraco 17/18 branch lines" section for the full git worktree
 workflow and which files are marked `merge=ours` in `.gitattributes`.
 
-The one genuine code-level difference between majors (Swashbuckle vs native OpenAPI document registration)
-lives in `Composers/OpenApiRegistration.Umbraco17.cs`/`.Umbraco18.cs`, conditionally compiled via
-`$(UmbracoTargetMajor)` from the repo-root `Directory.Build.props`. Everything else in the Composers/
-Controllers is version-agnostic and merges cleanly across the two branches.
+Unlike most Crumpled packages, there is **no** genuine code-level difference between majors to isolate -
+no Management API means no Swashbuckle-vs-native-OpenAPI split, so there's no
+`Composers/OpenApiRegistration.UmbracoNN.cs` pair and no `$(UmbracoTargetMajor)`-conditional compilation in
+the `.csproj`. The only thing expected to diverge between the two branch lines is the
+`@umbraco-cms/backoffice` version pin in `Client/package.json`/`package-lock.json`.
 
 ## Formatting
 
 `dotnet format --verify-no-changes` must pass in CI. Run `dotnet format` before committing.
 
-## API changes & codegen
+## Frontend changes
 
-If you change any Management API controller (routes, request/response models), regenerate the TypeScript
-client: start `Umbraco.Community.TipTopTipTap.DemoSite` (`dotnet run`, `https://localhost:44399`), then
-`cd src/Umbraco.Community.TipTopTipTap/Client && npm run generate-client`. Never hand-edit `src/api/*.gen.ts` -
-it's gitignored and CI always regenerates it. Never use raw `fetch()` in Client code - always the generated
-SDK functions from `src/api/index.js`.
+This package has no Management API and no OpenAPI codegen step - there's nothing to regenerate a
+TypeScript client against. Never use raw `fetch()` in Client code regardless; there's simply no backend
+endpoint to call. If you touch the TipTap extension logic, verify it by pasting real Word/Office-formatted
+HTML into a Rich Text Editor data type with the extension enabled and confirming the resulting markup has
+no stray empty `class=""`/`style=""` attributes or empty `span` wrappers.
 
 ## Versioning
 

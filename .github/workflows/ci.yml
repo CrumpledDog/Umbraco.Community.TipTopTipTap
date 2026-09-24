@@ -36,12 +36,6 @@ on:
       - feature/v2/**
       - hotfix/v2/**
   workflow_dispatch:
-    inputs:
-      force_codegen:
-        description: 'Force regeneration of the OpenAPI backoffice client (ignore cache)'
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   setup:
@@ -132,7 +126,7 @@ jobs:
           fi
 
   build:
-    name: Build, Run, CodeGen and Package
+    name: Build, Run and Package
     runs-on: ubuntu-latest
     needs: setup
     timeout-minutes: 10
@@ -148,15 +142,7 @@ jobs:
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    # This package was generated without a Client/ (backoffice UI) - all these steps self-skip via
-    # this hashFiles guard rather than the workflow needing two variants.
-    - name: Check for Client
-      id: has-client
-      shell: bash
-      run: echo "present=${{ hashFiles(format('{0}/package.json', env.PATH_TO_CLIENT)) != '' }}" >> $GITHUB_OUTPUT
-
     - name: Setup Node.js environment
-      if: steps.has-client.outputs.present == 'true'
       uses: actions/setup-node@v6
       with:
         node-version: 'lts/*'
@@ -164,24 +150,28 @@ jobs:
         cache-dependency-path: '${{ env.PATH_TO_CLIENT }}/package-lock.json'
 
     - name: Install Client dependencies
-      if: steps.has-client.outputs.present == 'true'
       working-directory: ${{ env.PATH_TO_CLIENT }}
       run: npm ci
 
-    - name: Cache generated OpenAPI client
-      id: codegen-cache
-      if: steps.has-client.outputs.present == 'true'
-      uses: actions/cache@v6
-      with:
-        path: ${{ env.PATH_TO_CLIENT }}/src/api
-        key: codegen-${{ github.ref_name }}-${{ hashFiles('src/Umbraco.Community.TipTopTipTap/Client/src/**', 'src/Umbraco.Community.TipTopTipTap/Client/public/**', 'src/Umbraco.Community.TipTopTipTap/Client/scripts/**', 'src/Umbraco.Community.TipTopTipTap/Client/package-lock.json') }}
-
+    # Must run BEFORE "Build Client" below - it stamps the real semver into
+    # Client/public/umbraco-package.json, and Vite copies public/ into the build output verbatim.
+    # Running it after the build (as this used to) meant the packed package's umbraco-package.json
+    # always shipped the placeholder "0.0.0", which Umbraco's backoffice uses as the bundle JS's
+    # cache-busting query string - so every release looked identical to the browser's HTTP cache.
     - name: Update Version Files
       id: update-version
       uses: CrumpledDog/Crumpled.Umbraco.Package.Actions/update-version-files@main
       with:
         semver: ${{ needs.setup.outputs.semver }}
         path-to-extension: src/Umbraco.Community.TipTopTipTap
+
+    # This package ships zero backend C# logic - the Client bundle is the whole product, and it
+    # must be built (into src/Umbraco.Community.TipTopTipTap/wwwroot/App_Plugins/**) *before* the
+    # DemoSite is built below, since the DemoSite picks up the package's static web assets at its
+    # own build time via the ProjectReference - not at publish/run time.
+    - name: Build Client
+      working-directory: ${{ env.PATH_TO_CLIENT }}
+      run: npm run build
 
     - name: Dotnet Format check
       run: dotnet format --verify-no-changes --verbosity diagnostic
@@ -207,12 +197,10 @@ jobs:
           nuget-cache-${{ runner.os }}-nuget-
 
     - name: Build Project
-      if: steps.codegen-cache.outputs.cache-hit != 'true' || inputs.force_codegen == true
       working-directory: ${{ env.PATH_TO_TESTSITE }}
       run: dotnet build -c Release
 
     - name: Start Project
-      if: steps.codegen-cache.outputs.cache-hit != 'true' || inputs.force_codegen == true
       working-directory: ${{ github.workspace }}/${{ env.PATH_TO_TESTSITE }}
       shell: bash
       run: |
@@ -221,14 +209,14 @@ jobs:
         sleep 5
 
     - name: Health Check
-      if: steps.codegen-cache.outputs.cache-hit != 'true' || inputs.force_codegen == true
       shell: bash
       run: |
-        # Polls the package's own swagger.json rather than the site root - the root route depends
-        # on Umbraco having routable content, which races with a fresh unattended install and can
-        # throw ("No UmbracoRouteValues feature was found") if hit before content is ready.
+        # This package has no Management API, so there's no swagger.json to poll. Instead this polls
+        # the package's own compiled Client bundle under App_Plugins as a static web asset - this
+        # confirms both that the DemoSite booted *and* that the static web assets actually got built
+        # and copied into place, which is arguably a better signal for a Client-only package anyway.
         for i in {1..30}; do
-          if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:44399/umbraco/swagger/umbracocommunitytiptoptiptap/swagger.json | grep -q "200"; then
+          if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:44399/App_Plugins/UmbracoCommunityTipTopTipTap/umbraco-community-tip-top-tip-tap.js | grep -q "200"; then
             echo "Umbraco is responding!"
             exit 0
           fi
@@ -237,13 +225,8 @@ jobs:
         echo "Umbraco failed to respond after 30 attempts"
         exit 1
 
-    - name: CodeGen
-      if: steps.has-client.outputs.present == 'true' && (steps.codegen-cache.outputs.cache-hit != 'true' || inputs.force_codegen == true)
-      working-directory: ${{ env.PATH_TO_CLIENT }}
-      run: npm run generate-client
-
     - name: Stop Project
-      if: always() && (steps.codegen-cache.outputs.cache-hit != 'true' || inputs.force_codegen == true)
+      if: always()
       shell: bash
       run: |
         if [ -n "$DOTNET_PID" ] && ps -p $DOTNET_PID > /dev/null 2>&1; then
@@ -252,14 +235,8 @@ jobs:
         fi
 
     - name: Check for Startup Errors
-      if: steps.codegen-cache.outputs.cache-hit != 'true' || inputs.force_codegen == true
       shell: pwsh
       run: '.github/scripts/Check-StartupErrors.ps1 -LogPath "${{ env.PATH_TO_TESTSITE }}/umbraco/Logs"'
-
-    - name: Build Client
-      if: steps.has-client.outputs.present == 'true'
-      working-directory: ${{ env.PATH_TO_CLIENT }}
-      run: npm run build
 
     - name: Build slnx
       run: dotnet build ${{ github.workspace }}/*.slnx -c Release
@@ -363,6 +340,17 @@ jobs:
         </configuration>
         EOF
 
+    # NuGet's global package cache (~/.nuget/packages, restored by the "Cache NuGet" step above)
+    # is keyed by package ID + version, and this repo has never actually published a real
+    # release - semantic-release's dry-run "next version" (e.g. `1.0.0-alpha.1`) is therefore
+    # IDENTICAL across every CI run until a real release happens. Without clearing it first,
+    # `dotnet add package` sees "this exact version is already in the global cache" from an
+    # earlier run and silently reuses that STALE content instead of the .nupkg this run just
+    # packed - confirmed live: this made the e2e job silently test old code for 9 consecutive
+    # runs with no error of any kind, only wrong behavior.
+    - name: Clear cached local package (avoid stale content for same-version dev builds)
+      run: rm -rf ~/.nuget/packages/umbraco.community.tiptoptiptap
+
     - name: Replace ProjectReference with PackageReference
       working-directory: ${{ env.PATH_TO_TESTSITE }}
       shell: bash
@@ -384,7 +372,7 @@ jobs:
         sleep 5
 
         for i in {1..30}; do
-          if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:44399/umbraco/swagger/umbracocommunitytiptoptiptap/swagger.json | grep -q "200"; then
+          if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:44399/App_Plugins/UmbracoCommunityTipTopTipTap/umbraco-community-tip-top-tip-tap.js | grep -q "200"; then
             exit 0
           fi
           sleep 2
@@ -403,6 +391,180 @@ jobs:
         path: |
           app.log
           app-errors.log
+          ${{ env.PATH_TO_TESTSITE }}/umbraco/Logs/
+        retention-days: 3
+
+  e2e:
+    name: E2E Tests (Playwright, against packed NuGet package)
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'nektos/act' }}
+    needs: [setup, build]
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v5
+
+    - uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Setup Node.js environment
+      uses: actions/setup-node@v6
+      with:
+        node-version: 'lts/*'
+        cache: 'npm'
+        cache-dependency-path: tests/e2e/package-lock.json
+
+    - name: Install npm dependencies - E2E tests
+      working-directory: tests/e2e
+      run: npm ci
+
+    - name: Install Playwright browsers
+      working-directory: tests/e2e
+      run: npx playwright install --with-deps chromium
+
+    # Deliberately runs before the reference-swap below, same reasoning as the `test-packages`
+    # job above: the restore cache should be warm before `dotnet add package`/`dotnet build`
+    # trigger the first real restore, and the swap rewrites the ever-changing semver into
+    # Directory.Packages.props, which would otherwise make hashFiles() produce a unique key
+    # every single run if computed after.
+    - name: Cache NuGet
+      uses: actions/cache@v6
+      with:
+        path: ~/.nuget/packages
+        key: nuget-cache-${{ runner.os }}-${{ github.ref_name }}-${{ hashFiles('**/*.csproj*') }}
+        restore-keys: |
+          nuget-cache-${{ runner.os }}-${{ github.ref_name }}-
+          nuget-cache-${{ runner.os }}-nuget-
+
+    - name: Download NuGet Packages
+      uses: actions/download-artifact@v8
+      with:
+        name: nuget-packages
+        path: ./nuget-packages
+
+    - name: Flatten NuGet Packages
+      shell: bash
+      run: |
+        mkdir -p ./nuget-packages-flat
+        find ./nuget-packages -name "*.nupkg" -o -name "*.snupkg" | xargs -I{} cp {} ./nuget-packages-flat/
+
+    # This is deliberately the same real-package swap as `test-packages` above (not a
+    # ProjectReference build) - the e2e site under test should be running the actual packaged
+    # output (including the Client bundle, already baked into the nupkg's static web assets),
+    # catching packaging bugs a ProjectReference build can't see. It's a separate job (rather
+    # than folding these steps into `test-packages`) so Playwright's own failure artifacts
+    # (trace/video/screenshot) and this job's Umbraco logs are uploaded independently and don't
+    # get lost among the simpler startup-only assertions `test-packages` makes.
+    - name: Configure NuGet with Package Source Mapping
+      working-directory: ${{ env.PATH_TO_TESTSITE }}
+      shell: bash
+      run: |
+        cat > nuget.config <<EOF
+        <?xml version="1.0" encoding="utf-8"?>
+        <configuration>
+          <packageSources>
+            <add key="nuget.org" value="https://api.nuget.org/v3/index.json" protocolVersion="3" />
+            <add key="LocalPackages" value="${{ github.workspace }}/nuget-packages-flat" />
+          </packageSources>
+          <packageSourceMapping>
+            <packageSource key="LocalPackages">
+              <package pattern="Umbraco.Community.TipTopTipTap*" />
+            </packageSource>
+            <packageSource key="nuget.org">
+              <package pattern="*" />
+            </packageSource>
+          </packageSourceMapping>
+        </configuration>
+        EOF
+
+    # NuGet's global package cache (~/.nuget/packages, restored by the "Cache NuGet" step above)
+    # is keyed by package ID + version, and this repo has never actually published a real
+    # release - semantic-release's dry-run "next version" (e.g. `1.0.0-alpha.1`) is therefore
+    # IDENTICAL across every CI run until a real release happens. Without clearing it first,
+    # `dotnet add package` sees "this exact version is already in the global cache" from an
+    # earlier run and silently reuses that STALE content instead of the .nupkg this run just
+    # packed - confirmed live: this made the e2e job silently test old code for 9 consecutive
+    # runs with no error of any kind, only wrong behavior.
+    - name: Clear cached local package (avoid stale content for same-version dev builds)
+      run: rm -rf ~/.nuget/packages/umbraco.community.tiptoptiptap
+
+    - name: Replace ProjectReference with PackageReference
+      working-directory: ${{ env.PATH_TO_TESTSITE }}
+      shell: bash
+      run: |
+        set -e
+        dotnet remove reference ../Umbraco.Community.TipTopTipTap/Umbraco.Community.TipTopTipTap.csproj
+        dotnet add package Umbraco.Community.TipTopTipTap --version ${{ needs.setup.outputs.semver }}
+
+    - name: Restore and Build with NuGet Packages
+      working-directory: ${{ env.PATH_TO_TESTSITE }}
+      run: dotnet build -c Release
+
+    # Restores the committed fixture DB instead of letting the DemoSite run a fresh unattended
+    # install - see tests/e2e/README.md. Confirmed locally this makes Umbraco boot straight into
+    # the seeded backoffice content (no re-triggered unattended install, no migration conflict).
+    - name: Restore Seed Database
+      run: |
+        mkdir -p ${{ env.PATH_TO_TESTSITE }}/umbraco/Data
+        cp tests/e2e/fixtures/seed.Umbraco.sqlite.db ${{ env.PATH_TO_TESTSITE }}/umbraco/Data/Umbraco.sqlite.db
+
+    - name: Start Test Site
+      working-directory: ${{ github.workspace }}/${{ env.PATH_TO_TESTSITE }}
+      shell: bash
+      run: |
+        nohup stdbuf -oL -eL dotnet run --no-build -c Release > ./dotnet-output.log 2>&1 &
+        echo "DOTNET_PID=$!" >> $GITHUB_ENV
+        sleep 5
+
+    - name: Health Check
+      shell: bash
+      run: |
+        for i in {1..30}; do
+          if curl -k -s -o /dev/null -w "%{http_code}" https://localhost:44399/umbraco | grep -q "200"; then
+            echo "Umbraco is responding!"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "Umbraco failed to respond after 30 attempts"
+        exit 1
+
+    - name: Run Playwright tests
+      working-directory: tests/e2e
+      env:
+        E2E_BASE_URL: https://localhost:44399
+      run: npm test
+
+    - name: Write Test Summary
+      if: always()
+      working-directory: tests/e2e
+      run: node scripts/write-summary.mjs
+
+    - name: Stop Test Site
+      if: always()
+      shell: bash
+      run: |
+        if [ -n "$DOTNET_PID" ] && ps -p $DOTNET_PID > /dev/null 2>&1; then
+          kill $DOTNET_PID 2>/dev/null || true
+        fi
+
+    - name: Upload Playwright Report on Failure
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: playwright-report
+        path: |
+          tests/e2e/playwright-report/
+          tests/e2e/test-results/
+        retention-days: 3
+
+    - name: Upload Logs on Failure
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: umbraco-logs-e2e
+        path: |
+          ${{ env.PATH_TO_TESTSITE }}/dotnet-output.log
           ${{ env.PATH_TO_TESTSITE }}/umbraco/Logs/
         retention-days: 3
 
