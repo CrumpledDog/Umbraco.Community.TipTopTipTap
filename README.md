@@ -9,6 +9,8 @@ carrying over the source application's inline formatting and dead attributes.
 
 <img src="https://raw.githubusercontent.com/CrumpledDog/Umbraco.Community.TipTopTipTap/release/v1/icons/icon.png" width="120" height="120" alt="">
 
+[![Build Status](https://github.com/CrumpledDog/Umbraco.Community.TipTopTipTap/actions/workflows/ci.yml/badge.svg?branch=develop/v1)](https://github.com/CrumpledDog/Umbraco.Community.TipTopTipTap/actions/workflows/ci.yml) [![NuGet](https://img.shields.io/nuget/v/Umbraco.Community.TipTopTipTap.svg)](https://www.nuget.org/packages/Umbraco.Community.TipTopTipTap/) [![NuGet Downloads](https://img.shields.io/nuget/dt/Umbraco.Community.TipTopTipTap.svg)](https://www.nuget.org/packages/Umbraco.Community.TipTopTipTap/)
+
 ## Installation
 
 ```bash

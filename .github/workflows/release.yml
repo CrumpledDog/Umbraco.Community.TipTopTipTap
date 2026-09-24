@@ -618,6 +618,12 @@ jobs:
           @semantic-release/release-notes-generator
           conventional-changelog-conventionalcommits
 
+    - name: Make merge script executable
+      if: ${{ startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/beta/') }}
+      # Belt-and-braces: this repo is developed on Windows, where git doesn't reliably track the
+      # executable bit, so the script's mode in the checkout can't be trusted to be +x.
+      run: chmod +x .github/scripts/merge-to-develop.sh
+
     - name: Merge release branch to develop
       if: ${{ startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/beta/') }}
       run: .github/scripts/merge-to-develop.sh "${{ needs.setup.outputs.semver }}"
