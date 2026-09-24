@@ -618,6 +618,69 @@ jobs:
           @semantic-release/release-notes-generator
           conventional-changelog-conventionalcommits
 
+    # Reuses semantic-release's own generated notes (steps.semantic.outputs.new_release_notes)
+    # rather than a second gh api releases/generate-notes call and manual previous-tag diffing -
+    # simpler, and it's the same changelog semantic-release already computed for this version.
+    - name: Generate Release Notes Body
+      if: ${{ steps.semantic.outputs.new_release_published == 'true' && github.event.inputs.create_github_release != 'false' }}
+      run: |
+        BRANCH_NAME="${{ github.ref_name }}"
+
+        if [[ "$BRANCH_NAME" == hotfix/* ]] || [[ "$BRANCH_NAME" == feature/* ]]; then
+          echo "## ⚠️ Test Release from \`$BRANCH_NAME\`" > release_body.md
+          echo "" >> release_body.md
+          echo "This is a test release for development and testing purposes only." >> release_body.md
+          echo "" >> release_body.md
+          echo "### Installation" >> release_body.md
+          echo "" >> release_body.md
+          cat << 'EOF' >> release_body.md
+        ```bash
+        dotnet add package Umbraco.Community.TipTopTipTap --version ${{ needs.setup.outputs.semver }} --source https://nuget.pkg.github.com/CrumpledDog/index.json
+        ```
+        EOF
+        elif [[ "${{ github.event.inputs.publish_to_nuget }}" == "true" && ("${{ needs.setup.outputs.semver }}" != *"-"* || "${{ needs.setup.outputs.semver }}" == *"-beta."*) ]]; then
+          cat << 'EOF' > release_body.md
+        ## Installation
+
+        ```bash
+        dotnet add package Umbraco.Community.TipTopTipTap --version ${{ needs.setup.outputs.semver }}
+        ```
+        EOF
+        else
+          echo "## Installation" > release_body.md
+          echo "" >> release_body.md
+
+          if [[ -n "${{ secrets.MYGET_API_KEY }}" ]]; then
+            cat << 'EOF' >> release_body.md
+        ### From MyGet (pre-release)
+
+        ```bash
+        dotnet add package Umbraco.Community.TipTopTipTap --version ${{ needs.setup.outputs.semver }} --source https://www.myget.org/F/umbraco-packages/api/v3/index.json
+        ```
+
+        EOF
+          fi
+
+          cat << 'EOF' >> release_body.md
+        ### From GitHub Packages (pre-release)
+
+        ```bash
+        dotnet add package Umbraco.Community.TipTopTipTap --version ${{ needs.setup.outputs.semver }} --source https://nuget.pkg.github.com/CrumpledDog/index.json
+        ```
+        EOF
+        fi
+
+        printf '\n%s\n' "${{ steps.semantic.outputs.new_release_notes }}" | sed '/^#\+ \[/d' >> release_body.md
+
+    - name: Update GitHub Release with Custom Notes
+      if: ${{ steps.semantic.outputs.new_release_published == 'true' && github.event.inputs.create_github_release != 'false' }}
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: v${{ needs.setup.outputs.semver }}
+        name: v${{ needs.setup.outputs.semver }}
+        body_path: release_body.md
+        prerelease: ${{ contains(needs.setup.outputs.semver, '-') }}
+
     - name: Make merge script executable
       if: ${{ startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/beta/') }}
       # Belt-and-braces: this repo is developed on Windows, where git doesn't reliably track the
