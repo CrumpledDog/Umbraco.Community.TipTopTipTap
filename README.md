@@ -44,6 +44,8 @@ needed:
 3. Save the data type. Any content using it will now have the cleanup applied automatically whenever
    content is pasted into that RTE.
 
+<img src="https://raw.githubusercontent.com/CrumpledDog/Umbraco.Community.TipTopTipTap/release/v1/docs/images/enable-extension.png" width="600" alt="The Rich Text Editor data type's Settings screen, with Office Paste Cleanup ticked in the Text formatting capabilities list">
+
 ## Requirements
 
 - Umbraco CMS 17 or 18
