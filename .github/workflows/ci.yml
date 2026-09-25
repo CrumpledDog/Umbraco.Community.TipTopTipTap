@@ -108,8 +108,7 @@ jobs:
             @semantic-release/commit-analyzer
             @semantic-release/release-notes-generator
             @semantic-release/github
-            conventional-changelog-conventionalcommits
-            conventional-changelog-writer
+            conventional-changelog-conventionalcommits@^9
 
       - name: Set Version
         id: set-version
