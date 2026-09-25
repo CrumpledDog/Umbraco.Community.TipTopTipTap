@@ -553,7 +553,7 @@ jobs:
       uses: NuGet/login@v1
       id: nuget-login
       with:
-        user: jeavon
+        user: ${{ vars.NUGET_TRUSTED_PUBLISHING_USER }}
 
     - name: Push to Nuget.org
       if: ${{ needs.setup.outputs.new_release_published == 'true' && github.event.inputs.publish_to_nuget == 'true' && (startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/beta/')) && (!contains(needs.setup.outputs.semver, '-') || contains(needs.setup.outputs.semver, '-beta.')) }}
