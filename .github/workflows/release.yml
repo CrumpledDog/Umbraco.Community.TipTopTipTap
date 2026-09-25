@@ -81,6 +81,7 @@ jobs:
             @semantic-release/commit-analyzer
             @semantic-release/release-notes-generator
             conventional-changelog-conventionalcommits
+            conventional-changelog-writer
 
       - name: Check Release
         run: |
@@ -617,6 +618,7 @@ jobs:
           @semantic-release/commit-analyzer
           @semantic-release/release-notes-generator
           conventional-changelog-conventionalcommits
+          conventional-changelog-writer
 
     # Reuses semantic-release's own generated notes (steps.semantic.outputs.new_release_notes)
     # rather than a second gh api releases/generate-notes call and manual previous-tag diffing -
